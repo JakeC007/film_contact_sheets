@@ -71,11 +71,16 @@ class ImageJob(QRunnable):
                 img = _cached_thumb(self.path)
             else:
                 img = load_image(self.path, max_side=self.max_side)
-            self.signals.loaded.emit(self.generation, self.path.name, self.kind, pil_to_qimage(img))
+            result = ("loaded", pil_to_qimage(img))
         except (ImageLoadError, OSError) as exc:
-            self.signals.failed.emit(self.generation, self.path.name, self.kind, str(exc))
+            result = ("failed", str(exc))
         except Exception as exc:  # never let a worker thread die silently
-            self.signals.failed.emit(self.generation, self.path.name, self.kind, f"{type(exc).__name__}: {exc}")
+            result = ("failed", f"{type(exc).__name__}: {exc}")
+        try:
+            getattr(self.signals, result[0]).emit(self.generation, self.path.name, self.kind,
+                                                  result[1])
+        except RuntimeError:
+            pass  # window closed while this job was running
 
 
 class ExifSignals(QObject):

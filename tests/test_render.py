@@ -160,7 +160,39 @@ def test_compact_text_helpers():
     r = model.Roll(film="Kodak Portra 400", box_iso=400, camera="Nikon FM2", lens="50mm",
                    scanner="Noritsu", date="Oct 2026")
     assert render.compact_header_text(r, "Lisbon") == (
-        "Lisbon    Kodak Portra 400, ISO 400    Nikon FM2    50mm    Scanner Noritsu    Oct 2026")
+        "Lisbon    Kodak Portra 400, ISO 400    Nikon FM2    50mm    Oct 2026    Scanner Noritsu")
     fr = model.Frame("x-R1-072-34A.jpg", label="34A", aperture=8.0, shutter="1/125")
     assert render.compact_caption(fr, r, False) == "34A  f/8  1/125"
     assert render.compact_caption(fr, r, True) == "34A  x-R1-072-34A  f/8  1/125"
+
+
+# ------------------------------------------------------------------ overview style
+
+def test_overview_fields_and_lens_summary():
+    r = model.Roll(film="Kodak Portra 400", box_iso=400, rated_iso=800, camera="Nikon FM2",
+                   lens="50mm f/1.8", location="Lisbon", date="3-12 Oct 2026", lab="The Darkroom")
+    r.frames = [model.Frame("a.jpg"), model.Frame("b.jpg", lens="28mm f/2.8"),
+                model.Frame("c.jpg", hidden=True, lens="135mm")]
+    f = dict(render.overview_fields(r))
+    assert f["ISO"] == "800  (box 400, +1)"
+    assert f["Lens"] == "50mm f/1.8, 28mm f/2.8"
+    assert f["Developed"] == "The Darkroom"
+    assert f["Frames"] == "2"
+    assert "Scanner" not in f
+
+
+def test_overview_renders_without_captions(tmp_path, monkeypatch):
+    roll = _make_roll(tmp_path, n=7)          # frame 1 has f/8 1/125
+    roll.location, roll.date, roll.notes = "Lisbon", "Oct 2026", "Some notes"
+    roll.frames[2].note = "frame note"
+    drawn = []
+    real_text = render.ImageDraw.ImageDraw.text
+    monkeypatch.setattr(render.ImageDraw.ImageDraw, "text",
+                        lambda self, xy, text, *a, **k: (drawn.append(text), real_text(self, xy, text, *a, **k)))
+    img = render.render_sheet(roll, tmp_path, render.SheetOptions(style="overview", cell_width=200,
+                                                                   columns=4))
+    assert img.width > 4 * 200
+    text = " | ".join(drawn)
+    assert "Lisbon" in text and "Kodak Gold 200" in text and "Some notes" in text
+    assert "f/8" not in text and "1/125" not in text and "frame note" not in text
+    assert not any(t == roll.frames[0].label for t in drawn)

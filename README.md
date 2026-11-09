@@ -47,6 +47,9 @@ them; only the fields you type in are applied.
   caption strip of small yellow text above each one, and the roll details on a
   single strip at the top. Frames are cropped slightly to fill their cells
   (untick "Crop frames to fill cells" to keep the full scan).
+* **Roll overview**: no per-frame text at all. A large heading (title, or the
+  film), then labelled roll facts: film, ISO, camera, every lens used on the
+  roll, location, date, who developed it, scanner, frame count and notes.
 
 ## EXIF
 

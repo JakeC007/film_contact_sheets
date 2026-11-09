@@ -57,7 +57,9 @@ class RollPanel(QWidget):
         self.camera = self._combo("camera")
         self.lens = self._combo("lens")
         self.scanner = self._combo("scanner")
-        self.date = QLineEdit(placeholderText="e.g. Oct 2026")
+        self.date = QLineEdit(placeholderText="e.g. 3-12 Oct 2026")
+        self.location = self._combo("location")
+        self.lab = self._combo("lab")
         self.notes = QPlainTextEdit()
         self.notes.setPlaceholderText("Roll notes (printed in the header)")
         self.notes.setMaximumHeight(110)
@@ -70,8 +72,10 @@ class RollPanel(QWidget):
         form.addRow("Shot at ISO", self.rated_iso)
         form.addRow("Camera", self.camera)
         form.addRow("Lens", self.lens)
-        form.addRow("Scanner", self.scanner)
+        form.addRow("Location", self.location)
         form.addRow("Date", self.date)
+        form.addRow("Lab", self.lab)
+        form.addRow("Scanner", self.scanner)
         form.addRow("Notes", self.notes)
         self.push_label = QLabel()
         self.push_label.setStyleSheet("color:#888;")
@@ -79,7 +83,7 @@ class RollPanel(QWidget):
 
         for w in (self.title, self.box_iso, self.rated_iso, self.date):
             w.textChanged.connect(self._changed)
-        for c in (self.film, self.camera, self.lens, self.scanner):
+        for c in self._combos():
             c.currentTextChanged.connect(self._changed)
         self.notes.textChanged.connect(self._changed)
         self.film.lineEdit().editingFinished.connect(self._film_finished)
@@ -95,8 +99,11 @@ class RollPanel(QWidget):
         c.completer().setFilterMode(Qt.MatchContains)
         return c
 
+    def _combos(self) -> list[QComboBox]:
+        return [self.film, self.camera, self.lens, self.scanner, self.location, self.lab]
+
     def refresh_choices(self) -> None:
-        for c in (self.film, self.camera, self.lens, self.scanner):
+        for c in self._combos():
             text = c.currentText()
             c.blockSignals(True)
             c.clear()
@@ -116,6 +123,8 @@ class RollPanel(QWidget):
         self.lens.setEditText(r.lens)
         self.scanner.setEditText(r.scanner)
         self.date.setText(r.date)
+        self.location.setEditText(r.location)
+        self.lab.setEditText(r.lab)
         self.notes.setPlainText(r.notes)
         self._loading = False
         self.setEnabled(roll is not None)
@@ -133,6 +142,8 @@ class RollPanel(QWidget):
         r.lens = self.lens.currentText().strip()
         r.scanner = self.scanner.currentText().strip()
         r.date = self.date.text().strip()
+        r.location = self.location.currentText().strip()
+        r.lab = self.lab.currentText().strip()
         r.notes = self.notes.toPlainText().strip()
         self._update_push()
         self.on_change()
@@ -734,7 +745,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e) -> None:
         self.save()
-        self.pool.waitForDone(3000)
+        self.generation += 1    # ignore anything still in flight
+        self.pool.clear()       # drop queued thumbnail jobs
+        self.pool.waitForDone(5000)
         super().closeEvent(e)
 
 

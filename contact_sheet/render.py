@@ -33,7 +33,8 @@ class SheetOptions:
     show_filename: bool = False
     show_notes: bool = True
     title: str = ""                  # optional, shown above the film line
-    style: str = "standard"          # "standard", or "compact": tight grid, yellow strips
+    style: str = "standard"          # "standard", "compact" (tight grid, yellow strips),
+                                     # or "overview" (roll details only, no per-frame text)
     fill: bool | None = None         # crop frames to fill cells; None = style default
 
 
@@ -133,6 +134,8 @@ def render_sheet(roll: Roll, folder: str | Path, opts: SheetOptions | None = Non
     opts = opts or SheetOptions()
     if opts.style == "compact":
         return _render_compact(roll, Path(folder), opts, progress)
+    if opts.style == "overview":
+        return _render_overview(roll, Path(folder), opts, progress)
     theme = THEMES.get(opts.theme, THEMES["dark"])
     folder = Path(folder)
     frames = roll.visible_frames()
@@ -221,7 +224,8 @@ def _header_lines(roll: Roll, opts: SheetOptions, draw, max_w: int, s: float):
 
     pairs = [(k, v.strip()) for k, v in (
         ("Camera", roll.camera), ("Lens", roll.lens),
-        ("Scanner", roll.scanner), ("Date", roll.date),
+        ("Location", roll.location), ("Date", roll.date),
+        ("Lab", roll.lab), ("Scanner", roll.scanner),
     ) if v and v.strip()]
     if pairs:
         # Split onto extra lines if they would overflow.
@@ -283,9 +287,12 @@ COMPACT_ERROR = (200, 70, 70)
 
 def compact_header_text(roll: Roll, title: str = "") -> str:
     parts = [title.strip(), roll.film_line(), roll.camera.strip(), roll.lens.strip()]
+    parts.append(roll.location.strip())
+    parts.append(roll.date.strip())
+    if roll.lab.strip():
+        parts.append(f"Lab {roll.lab.strip()}")
     if roll.scanner.strip():
         parts.append(f"Scanner {roll.scanner.strip()}")
-    parts.append(roll.date.strip())
     return "    ".join(p for p in parts if p)
 
 
@@ -354,6 +361,122 @@ def _render_compact(roll: Roll, folder: Path, opts: SheetOptions,
             for j, msg in enumerate(("Can't open file", fr.filename)):
                 draw.text((x0 + pad, img_y + ch // 2 - f.size + j * round(f.size * 1.3)),
                           _ellipsize(draw, msg, f, cw - 2 * pad), font=f, fill=COMPACT_ERROR)
+        if progress:
+            progress(i + 1, total)
+    return sheet
+
+
+# --------------------------------------------------------------------------- overview style
+# A roll-level sheet: large heading, a grid of labelled roll facts, then the
+# frames with no captions at all.
+
+def overview_fields(roll: Roll) -> list[tuple[str, str]]:
+    box, rated = roll.box_iso, roll.rated_iso
+    if rated and box and rated != box:
+        from .stops import push_pull_label
+        push = push_pull_label(box, rated)
+        iso = f"{rated}  (box {box}{', ' + push if push else ''})"
+    else:
+        iso = str(box or rated or "")
+    shown = len(roll.visible_frames())
+    fields = [
+        ("Film", roll.film), ("ISO", iso), ("Camera", roll.camera),
+        ("Lens", ", ".join(roll.lenses_used())), ("Location", roll.location),
+        ("Date", roll.date), ("Developed", roll.lab), ("Scanner", roll.scanner),
+        ("Frames", str(shown) if shown else ""),
+    ]
+    return [(k, v.strip()) for k, v in fields if v and v.strip()]
+
+
+def _render_overview(roll: Roll, folder: Path, opts: SheetOptions,
+                     progress: ProgressFn | None) -> Image.Image:
+    theme = THEMES.get(opts.theme, THEMES["dark"])
+    frames = roll.visible_frames()
+    cw = opts.cell_width
+    ch = round(cw / FRAME_ASPECT)
+    cols = max(1, opts.columns)
+    rows = max(1, math.ceil(len(frames) / cols))
+    gap = max(2, round(cw * 0.012))
+    grid_w = cols * cw + (cols - 1) * gap
+    s = grid_w / 3900                       # type scales with the sheet, not the cell
+    margin = max(24, round(110 * s))
+    width = grid_w + 2 * margin
+    fill = True if opts.fill is None else opts.fill
+
+    title_f = font("bold", max(20, round(96 * s)))
+    sub_f = font("regular", max(14, round(46 * s)))
+    label_f = font("regular", max(10, round(26 * s)))
+    value_f = font("bold", max(13, round(40 * s)))
+    note_f = font("regular", max(12, round(32 * s)))
+
+    scratch = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    if opts.title.strip():
+        title, subtitle = opts.title.strip(), roll.film_line()
+    else:
+        title = roll.film_line() or "Untitled roll"
+        subtitle = "  ·  ".join(p for p in (roll.location.strip(), roll.date.strip()) if p)
+
+    fields = overview_fields(roll)
+    field_cols = 4 if width > 1400 else 2
+    col_w = (grid_w - (field_cols - 1) * round(40 * s)) // field_cols
+    field_rows = math.ceil(len(fields) / field_cols) if fields else 0
+    field_h = round(label_f.size * 1.5 + value_f.size * 1.5)
+
+    notes = _wrap(scratch, roll.notes.strip(), note_f, grid_w) if (opts.show_notes and roll.notes.strip()) else []
+
+    y = margin
+    layout = []
+    layout.append(("title", y)); y += round(title_f.size * 1.25)
+    if subtitle:
+        layout.append(("subtitle", y)); y += round(sub_f.size * 1.5)
+    y += round(30 * s)
+    layout.append(("rule", y)); y += round(40 * s)
+    fields_y = y
+    y += field_rows * field_h
+    if notes:
+        y += round(10 * s)
+        notes_y = y
+        y += len(notes) * round(note_f.size * 1.45)
+    grid_top = y + round(60 * s)
+    height = grid_top + rows * ch + (rows - 1) * gap + margin
+
+    sheet = Image.new("RGB", (width, height), theme["bg"])
+    draw = ImageDraw.Draw(sheet)
+    for kind, ly in layout:
+        if kind == "title":
+            draw.text((margin, ly), _ellipsize(draw, title, title_f, grid_w), font=title_f,
+                      fill=theme["text"])
+        elif kind == "subtitle":
+            draw.text((margin, ly), _ellipsize(draw, subtitle, sub_f, grid_w), font=sub_f,
+                      fill=theme["accent"])
+        elif kind == "rule":
+            draw.rectangle([margin, ly, margin + grid_w, ly + max(1, round(3 * s))],
+                           fill=theme["dim"])
+
+    for n, (label, value) in enumerate(fields):
+        r, c = divmod(n, field_cols)
+        fx = margin + c * (col_w + round(40 * s))
+        fy = fields_y + r * field_h
+        draw.text((fx, fy), label.upper(), font=label_f, fill=theme["dim"])
+        draw.text((fx, fy + round(label_f.size * 1.35)), _ellipsize(draw, value, value_f, col_w),
+                  font=value_f, fill=theme["text"])
+
+    for n, line in enumerate(notes):
+        draw.text((margin, notes_y + n * round(note_f.size * 1.45)), line, font=note_f,
+                  fill=theme["dim"])
+
+    total = len(frames)
+    for i, fr in enumerate(frames):
+        r, c = divmod(i, cols)
+        x0 = margin + c * (cw + gap)
+        y0 = grid_top + r * (ch + gap)
+        draw.rectangle([x0, y0, x0 + cw - 1, y0 + ch - 1], fill=theme["cell"])
+        try:
+            img = load_image(folder / fr.filename, max_side=cw * 2)
+            img = fit_frame(img, cw, ch, opts.vertical, fr.rotation, fill)
+            sheet.paste(img, (x0 + (cw - img.width) // 2, y0 + (ch - img.height) // 2))
+        except (ImageLoadError, FileNotFoundError):
+            draw.text((x0 + 10, y0 + ch // 2), "Can't open file", font=label_f, fill=theme["error"])
         if progress:
             progress(i + 1, total)
     return sheet

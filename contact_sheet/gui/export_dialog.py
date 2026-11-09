@@ -55,6 +55,7 @@ class ExportDialog(QDialog):
         self.layout_style = QComboBox()
         self.layout_style.addItem("Standard (header block, spaced frames)", "standard")
         self.layout_style.addItem("Compact (tight grid, yellow caption strips)", "compact")
+        self.layout_style.addItem("Roll overview (roll details only, no per-frame info)", "overview")
         self.layout_style.setCurrentIndex(max(0, self.layout_style.findData(opts.style)))
         form.addRow("Layout", self.layout_style)
 
@@ -77,7 +78,7 @@ class ExportDialog(QDialog):
         self.vertical.setCurrentIndex(max(0, self.vertical.findData(opts.vertical)))
         form.addRow("Vertical frames", self.vertical)
 
-        default_fill = opts.style == "compact"
+        default_fill = opts.style in ("compact", "overview")
         self.fill = QCheckBox("Crop frames to fill cells (trims edges slightly)",
                               checked=default_fill if opts.fill is None else opts.fill)
         form.addRow("", self.fill)
@@ -86,6 +87,7 @@ class ExportDialog(QDialog):
 
         self.show_notes = QCheckBox("Show notes", checked=opts.show_notes)
         self.show_filename = QCheckBox("Show filenames", checked=opts.show_filename)
+        self.show_filename.setEnabled(opts.style != "overview")
         form.addRow("", self.show_notes)
         form.addRow("", self.show_filename)
 
@@ -130,9 +132,11 @@ class ExportDialog(QDialog):
         self.resize(560, self.sizeHint().height())
 
     def _style_changed(self) -> None:
-        compact = self.layout_style.currentData() == "compact"
-        self.fill.setChecked(compact)
+        style = self.layout_style.currentData()
+        compact = style == "compact"
+        self.fill.setChecked(style in ("compact", "overview"))
         self.theme.setEnabled(not compact)  # compact is always black with yellow text
+        self.show_filename.setEnabled(style != "overview")
 
     def _exif_toggled(self, on: bool) -> None:
         self.exif_mode.setEnabled(on)

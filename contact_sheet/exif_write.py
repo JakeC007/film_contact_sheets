@@ -47,6 +47,8 @@ class Tags:
 
 def tags_for(roll: Roll, fr: Frame) -> Tags:
     parts = [roll.film_line()]
+    if roll.location.strip():
+        parts.append(roll.location.strip())
     if fr.note:
         parts.append(fr.note)
     if roll.scanner:

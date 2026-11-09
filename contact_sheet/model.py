@@ -45,7 +45,9 @@ class Roll:
     camera: str = ""
     lens: str = ""
     scanner: str = ""
-    date: str = ""
+    date: str = ""                  # free text, e.g. "3-12 Oct 2026"
+    location: str = ""
+    lab: str = ""                   # who developed / scanned it
     notes: str = ""
     frames: list[Frame] = field(default_factory=list)
 
@@ -69,6 +71,15 @@ class Roll:
         if iso:
             return f"ISO {iso}"
         return film
+
+    def lenses_used(self) -> list[str]:
+        """Roll lens plus any per-frame overrides, in first-use order."""
+        out: list[str] = []
+        for lens in [self.lens] + [f.lens for f in self.frames if not f.hidden]:
+            lens = (lens or "").strip()
+            if lens and lens not in out:
+                out.append(lens)
+        return out
 
     def visible_frames(self) -> list[Frame]:
         return [f for f in self.frames if not f.hidden]
