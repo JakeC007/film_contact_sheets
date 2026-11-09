@@ -127,6 +127,33 @@ def test_rotate_hide_and_move(window, app):
     assert [f.label for f in win.roll.frames] == ["1", "2", "3", "4", "5"]
 
 
+def test_exif_job_and_dialog(window, app):
+    from contact_sheet.exif_write import COPY_DIR
+    from contact_sheet.gui.export_dialog import ExportDialog
+    from contact_sheet.gui.workers import ExifJob, ExifSignals
+    from contact_sheet.render import SheetOptions
+
+    win, scans = window
+    dlg = ExportDialog(scans, SheetOptions(), "jpg", "", write_exif=True, exif_mode="inplace",
+                       exiftool=None)
+    assert dlg.exif_choice() == (True, "inplace")
+    assert "not found" in dlg.exif_status.text()
+    dlg.write_exif.setChecked(False)
+    assert not dlg.exif_mode.isEnabled()
+
+    win.roll.frames[0].aperture = 8.0
+    sig = ExifSignals()
+    reports = []
+    sig.done.connect(reports.append)
+    win.pool.start(ExifJob(win.roll, scans, "copy", None, sig))
+    win.pool.waitForDone(10000)
+    app.processEvents()
+    assert reports and len(reports[0].written) == 5
+    assert (scans / COPY_DIR / win.roll.frames[0].filename).exists()
+    # copies in the subfolder are not picked up as new scans
+    assert len(model.load_roll(scans).frames) == 5
+
+
 def test_render_job_runs(window, app, tmp_path):
     from contact_sheet.gui.workers import RenderJob, RenderSignals
     from contact_sheet.render import SheetOptions

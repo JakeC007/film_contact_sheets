@@ -192,3 +192,6 @@ CLAUDE.local.md
 
 # Generated contact sheets and per-roll state from local testing
 sample_output/
+
+# Optional bundled ExifTool binaries
+vendor/

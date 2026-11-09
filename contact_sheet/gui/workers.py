@@ -78,6 +78,30 @@ class ImageJob(QRunnable):
             self.signals.failed.emit(self.generation, self.path.name, self.kind, f"{type(exc).__name__}: {exc}")
 
 
+class ExifSignals(QObject):
+    progress = Signal(int, int)
+    done = Signal(object)      # exif_write.Report
+    failed = Signal(str)
+
+
+class ExifJob(QRunnable):
+    def __init__(self, roll: Roll, folder: Path, mode: str, exiftool: str | None,
+                 signals: ExifSignals):
+        super().__init__()
+        self.roll = copy.deepcopy(roll)
+        self.folder, self.mode, self.exiftool, self.signals = folder, mode, exiftool, signals
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        from ..exif_write import write_roll_exif
+        try:
+            report = write_roll_exif(self.roll, self.folder, self.mode, self.exiftool,
+                                     progress=lambda i, t: self.signals.progress.emit(i, t))
+            self.signals.done.emit(report)
+        except Exception as exc:
+            self.signals.failed.emit(f"{type(exc).__name__}: {exc}")
+
+
 class RenderSignals(QObject):
     progress = Signal(int, int)
     done = Signal(str)

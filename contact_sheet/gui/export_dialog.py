@@ -8,9 +8,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                               QFormLayout, QHBoxLayout, QLineEdit, QPushButton, QSpinBox,
-                               QWidget)
+                               QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                               QSpinBox, QWidget)
 
+from ..exif_write import COPY_DIR
 from ..render import SheetOptions, default_output_path
 
 FORMATS = [("JPEG", "jpg"), ("PNG", "png"), ("PDF", "pdf")]
@@ -40,7 +41,8 @@ def store_options(settings: QSettings, opts: SheetOptions, fmt: str) -> None:
 
 class ExportDialog(QDialog):
     def __init__(self, folder: Path, opts: SheetOptions, fmt: str, title: str,
-                 parent: QWidget | None = None):
+                 parent: QWidget | None = None, *, write_exif: bool = False,
+                 exif_mode: str = "copy", exiftool: str | None = None):
         super().__init__(parent)
         self.setWindowTitle("Export contact sheet")
         self.folder = folder
@@ -89,12 +91,37 @@ class ExportDialog(QDialog):
         form.addRow("Save to", row)
         self.fmt.currentIndexChanged.connect(self._format_changed)
 
+        self.write_exif = QCheckBox("Also write exposure details into the scans' EXIF",
+                                    checked=write_exif)
+        form.addRow("EXIF", self.write_exif)
+        self.exif_mode = QComboBox()
+        self.exif_mode.addItem(f"Write copies to the '{COPY_DIR}' subfolder", "copy")
+        self.exif_mode.addItem("Overwrite the original scans", "inplace")
+        self.exif_mode.setCurrentIndex(max(0, self.exif_mode.findData(exif_mode)))
+        form.addRow("", self.exif_mode)
+        status = ("ExifTool found: JPEG, TIFF and PNG will be tagged." if exiftool else
+                  "ExifTool not found: JPEGs will be tagged, TIFF/PNG skipped. "
+                  "Install it from exiftool.org or set its location in the File menu.")
+        self.exif_status = QLabel(status)
+        self.exif_status.setWordWrap(True)
+        self.exif_status.setStyleSheet("color:#888;")
+        form.addRow("", self.exif_status)
+        self.write_exif.toggled.connect(self._exif_toggled)
+        self._exif_toggled(write_exif)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Export")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
         self.resize(560, self.sizeHint().height())
+
+    def _exif_toggled(self, on: bool) -> None:
+        self.exif_mode.setEnabled(on)
+        self.exif_status.setEnabled(on)
+
+    def exif_choice(self) -> tuple[bool, str]:
+        return self.write_exif.isChecked(), self.exif_mode.currentData()
 
     def _format_changed(self) -> None:
         p = Path(self.out_path.text() or default_output_path(self.folder))

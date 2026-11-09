@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFile
                                QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
 from .. import __version__
+from ..exif_write import COPY_DIR, find_exiftool
 from ..editing import apply_entry, frame_summary, move_frame, next_index, set_exposure
 from ..frames import label_sort_key
 from ..library import Library
@@ -21,7 +22,7 @@ from ..model import Roll, load_roll, save_roll
 from ..stops import ParseError
 from .export_dialog import ExportDialog, load_options, store_options
 from .frame_editor import FrameEditor
-from .workers import ImageJob, ImageSignals, RenderJob, RenderSignals
+from .workers import ExifJob, ExifSignals, ImageJob, ImageSignals, RenderJob, RenderSignals
 
 APP_NAME = "Film Contact Sheets"
 ICON_SIZE = QSize(210, 140)
@@ -168,6 +169,7 @@ class MainWindow(QMainWindow):
         self._preview_pending: set[str] = set()
         self.generation = 0
         self._render_signals: RenderSignals | None = None
+        self._exif_signals: ExifSignals | None = None
 
         self.setWindowTitle(APP_NAME)
         self.setAcceptDrops(True)
@@ -240,6 +242,8 @@ class MainWindow(QMainWindow):
         act(m, "&Save", self.save, "Ctrl+S")
         m.addSeparator()
         self.export_action = act(m, "&Export contact sheet…", self.export, "Ctrl+E")
+        act(m, "&Write EXIF to scans…", self.write_exif_only)
+        act(m, "Set ExifTool location…", self.choose_exiftool)
         m.addSeparator()
         act(m, "E&xit", self.close, "Alt+F4")
 
@@ -583,41 +587,105 @@ class MainWindow(QMainWindow):
     def export(self) -> None:
         if not self.roll or not self.folder:
             return
-        missing = [f.label for f in self.roll.visible_frames() if not f.has_exposure()]
         opts, fmt = load_options(self.settings)
-        dlg = ExportDialog(self.folder, opts, fmt, self.roll.title, self)
-        if missing:
-            dlg.setToolTip(f"{len(missing)} frames have no exposure yet")
+        exiftool = self.exiftool_path()
+        dlg = ExportDialog(self.folder, opts, fmt, self.roll.title, self,
+                           write_exif=self.settings.value("write_exif", False, type=bool),
+                           exif_mode=self.settings.value("exif_mode", "copy"),
+                           exiftool=exiftool)
         if dlg.exec() != ExportDialog.Accepted:
             return
         opts = dlg.options()
+        write_exif, exif_mode = dlg.exif_choice()
         store_options(self.settings, opts, dlg.format())
+        self.settings.setValue("write_exif", write_exif)
+        self.settings.setValue("exif_mode", exif_mode)
+        if write_exif and exif_mode == "inplace" and not self._confirm_overwrite():
+            return
         if opts.title != self.roll.title:
             self.roll.title = opts.title
             self.roll_panel.set_roll(self.roll)
         self.save()
         out = dlg.output_path()
 
-        progress = QProgressDialog("Rendering contact sheet…", None, 0,
-                                   max(1, len(self.roll.visible_frames())), self)
+        progress = self._progress("Rendering contact sheet…", len(self.roll.visible_frames()))
+        signals = RenderSignals()
+        self._render_signals = signals  # keep alive
+        signals.progress.connect(lambda i, t: progress.setValue(i))
+
+        def rendered(p: str) -> None:
+            progress.close()
+            if write_exif:
+                self._run_exif(exif_mode, exiftool, sheet=Path(p))
+            else:
+                self._export_done(Path(p), None)
+
+        signals.done.connect(rendered)
+        signals.failed.connect(lambda m: self._export_failed(progress, m))
+        self.pool.start(RenderJob(self.roll, self.folder, opts, out, signals))
+
+    def write_exif_only(self) -> None:
+        if not self.roll or not self.folder:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle(APP_NAME)
+        box.setText("Write film, ISO, camera, lens, aperture and shutter into the scans' EXIF?")
+        tool = self.exiftool_path()
+        box.setInformativeText("" if tool else
+                               "ExifTool not found, so TIFF and PNG files will be skipped.")
+        copy_btn = box.addButton(f"Write copies ({COPY_DIR} folder)", QMessageBox.AcceptRole)
+        over_btn = box.addButton("Overwrite originals", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is copy_btn:
+            mode = "copy"
+        elif clicked is over_btn and self._confirm_overwrite():
+            mode = "inplace"
+        else:
+            return
+        self.save()
+        self._run_exif(mode, tool, sheet=None)
+
+    def _confirm_overwrite(self) -> bool:
+        return QMessageBox.warning(
+            self, APP_NAME,
+            "This rewrites your original scan files. Pixels are not re-encoded, "
+            "but keep a backup if these are your only copies.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+
+    def _run_exif(self, mode: str, exiftool: str | None, sheet: Path | None) -> None:
+        progress = self._progress("Writing EXIF…", len(self.roll.frames))
+        signals = ExifSignals()
+        self._exif_signals = signals
+        signals.progress.connect(lambda i, t: progress.setValue(i))
+
+        def done(report) -> None:
+            progress.close()
+            if sheet is not None:
+                self._export_done(sheet, report)
+            else:
+                self._show_exif_report(report)
+
+        signals.done.connect(done)
+        signals.failed.connect(lambda m: self._export_failed(progress, m))
+        self.pool.start(ExifJob(self.roll, self.folder, mode, exiftool, signals))
+
+    def _progress(self, text: str, total: int) -> QProgressDialog:
+        progress = QProgressDialog(text, None, 0, max(1, total), self)
         progress.setWindowTitle(APP_NAME)
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
+        return progress
 
-        signals = RenderSignals()
-        self._render_signals = signals  # keep alive
-        signals.progress.connect(lambda i, t: progress.setValue(i))
-        signals.done.connect(lambda p: self._export_done(progress, Path(p)))
-        signals.failed.connect(lambda m: self._export_failed(progress, m))
-        self.pool.start(RenderJob(self.roll, self.folder, opts, out, signals))
-
-    def _export_done(self, progress: QProgressDialog, path: Path) -> None:
-        progress.close()
+    def _export_done(self, path: Path, report) -> None:
         self.statusBar().showMessage(f"Saved {path}")
         box = QMessageBox(self)
         box.setWindowTitle(APP_NAME)
         box.setText(f"Contact sheet saved:\n{path}")
+        if report is not None:
+            box.setInformativeText(report.summary())
         open_btn = box.addButton("Open", QMessageBox.AcceptRole)
         folder_btn = box.addButton("Show folder", QMessageBox.ActionRole)
         box.addButton(QMessageBox.Close)
@@ -627,9 +695,32 @@ class MainWindow(QMainWindow):
         elif box.clickedButton() is folder_btn:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
+    def _show_exif_report(self, report) -> None:
+        self.statusBar().showMessage(report.summary().splitlines()[0])
+        box = QMessageBox(self)
+        box.setWindowTitle(APP_NAME)
+        box.setText(report.summary())
+        target = report.out_dir or self.folder
+        folder_btn = box.addButton("Show folder", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Close)
+        box.exec()
+        if box.clickedButton() is folder_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+
     def _export_failed(self, progress: QProgressDialog, message: str) -> None:
         progress.close()
         QMessageBox.warning(self, APP_NAME, f"Export failed:\n{message}")
+
+    def exiftool_path(self) -> str | None:
+        return find_exiftool(self.settings.value("exiftool_path", "") or None)
+
+    def choose_exiftool(self) -> None:
+        current = self.exiftool_path() or ""
+        path, _ = QFileDialog.getOpenFileName(self, "Locate exiftool.exe", current,
+                                              "ExifTool (exiftool*.exe exiftool);;All files (*)")
+        if path:
+            self.settings.setValue("exiftool_path", path)
+            self.statusBar().showMessage(f"ExifTool: {path}", 4000)
 
     # ------------------------------------------------------------------ misc
 

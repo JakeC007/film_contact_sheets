@@ -4,8 +4,6 @@ Windows app that turns a folder of film scans into a contact sheet, with the
 aperture and shutter speed under each frame and the film, ISO, camera, lens and
 scanner in a header. Built for lab scans that carry little or no EXIF.
 
-Status: in progress.
-
 ## Running
 
 ```
@@ -40,6 +38,32 @@ pytest
 
 Select several thumbnails (Ctrl/Shift+click) to set the same values on all of
 them; only the fields you type in are applied.
+
+## EXIF
+
+Tick "Also write exposure details into the scans' EXIF" in the export dialog,
+or use File > Write EXIF to scans. Written tags: FNumber, ExposureTime, ISO
+(the rated ISO), Model (camera), LensModel, ImageDescription (film, note,
+scanner). Unknown values are left out rather than guessed.
+
+* Default mode writes copies to a `with_exif` subfolder. "Overwrite originals"
+  replaces the scans (asks first).
+* JPEGs are tagged with piexif, which does not re-encode the image.
+* TIFF and PNG need [ExifTool](https://exiftool.org). The app looks for it on
+  PATH, next to the .exe, or wherever File > Set ExifTool location points.
+
+## Building the .exe
+
+```
+build.bat
+```
+
+This creates a venv, installs dependencies, runs the tests and produces
+`dist\FilmContactSheets\FilmContactSheets.exe`. To bundle ExifTool, unzip the
+Windows ExifTool download into `vendor\exiftool\` (rename `exiftool(-k).exe`
+to `exiftool.exe`, keep the `exiftool_files` folder next to it) before building.
+Set `ONEFILE = True` in `contact_sheet.spec` for a single-file exe that starts
+more slowly.
 
 ## Typing exposures
 
