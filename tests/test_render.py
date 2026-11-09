@@ -129,3 +129,38 @@ def test_saved_sheet_not_picked_up_as_scan(tmp_path):
     render.save_sheet(render.render_sheet(roll, tmp_path, render.SheetOptions(cell_width=200)),
                       render.default_output_path(tmp_path))
     assert len(model.load_roll(tmp_path).frames) == 2
+
+
+# ------------------------------------------------------------------ compact style
+
+def test_fit_frame_fill_crops_to_box():
+    img = Image.new("RGB", (907, 624))   # lab scan proportions, a bit squarer than 3:2
+    assert render.fit_frame(img, 300, 200, "rotate", 0, fill=True).size == (300, 200)
+    assert render.fit_frame(img, 300, 200, "rotate", 0, fill=False).size == (291, 200)
+
+
+def test_compact_layout_dimensions(tmp_path):
+    roll = _make_roll(tmp_path, n=8)
+    opts = render.SheetOptions(style="compact", columns=6, cell_width=260)
+    img = render.render_sheet(roll, tmp_path, opts)
+    # 6 cells of 260 with 1 px seams, no outer margin
+    assert img.width == 6 * 260 + 5
+    # header strip + seam + 2 rows of (18 strip + 173 image) + 1 seam
+    assert img.height == 18 + 1 + 2 * (18 + 173) + 1
+
+
+def test_compact_without_roll_info_has_no_header(tmp_path):
+    roll = _make_roll(tmp_path, n=6)
+    roll.film, roll.box_iso = "", None
+    img = render.render_sheet(roll, tmp_path, render.SheetOptions(style="compact", cell_width=260))
+    assert img.height == 18 + 173
+
+
+def test_compact_text_helpers():
+    r = model.Roll(film="Kodak Portra 400", box_iso=400, camera="Nikon FM2", lens="50mm",
+                   scanner="Noritsu", date="Oct 2026")
+    assert render.compact_header_text(r, "Lisbon") == (
+        "Lisbon    Kodak Portra 400, ISO 400    Nikon FM2    50mm    Scanner Noritsu    Oct 2026")
+    fr = model.Frame("x-R1-072-34A.jpg", label="34A", aperture=8.0, shutter="1/125")
+    assert render.compact_caption(fr, r, False) == "34A  f/8  1/125"
+    assert render.compact_caption(fr, r, True) == "34A  x-R1-072-34A  f/8  1/125"

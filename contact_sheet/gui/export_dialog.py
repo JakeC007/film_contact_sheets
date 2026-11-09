@@ -52,6 +52,12 @@ class ExportDialog(QDialog):
         self.title.setPlaceholderText("Optional, e.g. Lisbon, roll 3")
         form.addRow("Title", self.title)
 
+        self.layout_style = QComboBox()
+        self.layout_style.addItem("Standard (header block, spaced frames)", "standard")
+        self.layout_style.addItem("Compact (tight grid, yellow caption strips)", "compact")
+        self.layout_style.setCurrentIndex(max(0, self.layout_style.findData(opts.style)))
+        form.addRow("Layout", self.layout_style)
+
         self.columns = QSpinBox(minimum=1, maximum=12, value=opts.columns)
         form.addRow("Columns", self.columns)
 
@@ -70,6 +76,13 @@ class ExportDialog(QDialog):
         self.vertical.addItem("Keep upright (smaller)", "fit")
         self.vertical.setCurrentIndex(max(0, self.vertical.findData(opts.vertical)))
         form.addRow("Vertical frames", self.vertical)
+
+        default_fill = opts.style == "compact"
+        self.fill = QCheckBox("Crop frames to fill cells (trims edges slightly)",
+                              checked=default_fill if opts.fill is None else opts.fill)
+        form.addRow("", self.fill)
+        self.layout_style.currentIndexChanged.connect(self._style_changed)
+        self.theme.setEnabled(opts.style != "compact")
 
         self.show_notes = QCheckBox("Show notes", checked=opts.show_notes)
         self.show_filename = QCheckBox("Show filenames", checked=opts.show_filename)
@@ -116,6 +129,11 @@ class ExportDialog(QDialog):
         form.addRow(buttons)
         self.resize(560, self.sizeHint().height())
 
+    def _style_changed(self) -> None:
+        compact = self.layout_style.currentData() == "compact"
+        self.fill.setChecked(compact)
+        self.theme.setEnabled(not compact)  # compact is always black with yellow text
+
     def _exif_toggled(self, on: bool) -> None:
         self.exif_mode.setEnabled(on)
         self.exif_status.setEnabled(on)
@@ -140,6 +158,7 @@ class ExportDialog(QDialog):
             theme=self.theme.currentData(), vertical=self.vertical.currentData(),
             show_notes=self.show_notes.isChecked(), show_filename=self.show_filename.isChecked(),
             title=self.title.text().strip(),
+            style=self.layout_style.currentData(), fill=self.fill.isChecked(),
         )
 
     def format(self) -> str:

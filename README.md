@@ -39,6 +39,15 @@ pytest
 Select several thumbnails (Ctrl/Shift+click) to set the same values on all of
 them; only the fields you type in are applied.
 
+## Sheet layouts
+
+* **Standard**: header block with film, ISO, camera, lens and scanner, spaced
+  frames, dark or light background.
+* **Compact**: frames packed edge to edge on black with a 1 px seam, a thin
+  caption strip of small yellow text above each one, and the roll details on a
+  single strip at the top. Frames are cropped slightly to fill their cells
+  (untick "Crop frames to fill cells" to keep the full scan).
+
 ## EXIF
 
 Tick "Also write exposure details into the scans' EXIF" in the export dialog,
