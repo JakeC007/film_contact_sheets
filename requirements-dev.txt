@@ -1,4 +1,5 @@
 -r requirements.txt
 pytest>=7.4
 pytest-timeout>=2.2
+# >=6.0 fixes CVE-2025-59042 (code injection via sys.path at app start-up)
 pyinstaller>=6.0

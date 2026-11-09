@@ -101,6 +101,21 @@ def test_bad_jpeg_reported_not_raised(tmp_path):
     assert rep.failed and not rep.written
 
 
+def test_fake_jpeg_containing_a_path_is_not_followed(tmp_path, monkeypatch):
+    # A ".jpg" whose bytes are a file path must never reach piexif.load (Piexif#124).
+    (tmp_path / "private").mkdir()
+    secret = tmp_path / "private" / "secret.jpg"   # subfolder, so not part of the roll
+    Image.new("RGB", (10, 10)).save(secret)
+    r = _roll(tmp_path, ["s-1.jpg"])
+    (tmp_path / "s-1.jpg").write_bytes(str(secret).encode())
+    calls = []
+    real_load = piexif.load
+    monkeypatch.setattr(piexif, "load", lambda d, *a, **k: (calls.append(d), real_load(d, *a, **k))[1])
+    rep = exif_write.write_roll_exif(r, tmp_path, mode="copy")
+    assert rep.failed == [("s-1.jpg", "not a JPEG file")]
+    assert calls == []
+
+
 @pytest.mark.parametrize("mode", ["copy", "inplace"])
 def test_tiff_with_exiftool(tmp_path, mode):
     tool = _find_exiftool()

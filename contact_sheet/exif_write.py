@@ -151,6 +151,10 @@ def build_piexif(tags: Tags, existing: bytes | None = None) -> bytes:
 
 def _write_jpeg(src: Path, dst: Path, tags: Tags) -> None:
     raw = src.read_bytes()
+    # piexif.load() treats any bytes that aren't JPEG/TIFF/"Exif" data as a *filename*
+    # and opens it (hMatoba/Piexif#124, unfixed). Only ever hand it real JPEG bytes.
+    if raw[:3] != b"\xff\xd8\xff":
+        raise ValueError("not a JPEG file")
     out = io.BytesIO()
     piexif.insert(build_piexif(tags, raw), raw, out)
     _atomic_write(dst, out.getvalue())

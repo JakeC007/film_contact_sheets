@@ -71,6 +71,8 @@ scanner). Unknown values are left out rather than guessed.
 * JPEGs are tagged with piexif, which does not re-encode the image.
 * TIFF and PNG need [ExifTool](https://exiftool.org). The app looks for it on
   PATH, next to the .exe, or wherever File > Set ExifTool location points.
+  Use 13.54 or newer, downloaded from exiftool.org itself, and compare the
+  download against the SHA256 checksums published on that page.
 
 ## Building the .exe
 

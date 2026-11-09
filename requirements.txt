@@ -1,6 +1,7 @@
 # Essentials = QtCore, QtGui, QtWidgets, QtTest. About a third the size of "PySide6".
 PySide6-Essentials>=6.6
-Pillow>=10.0
+# 13.0.0 fixes a large batch of decoder CVEs (Oct 2026) and needs Python 3.11+.
+Pillow>=13.0.0
 numpy>=1.24
 tifffile>=2023.7.10
 piexif>=1.1.3

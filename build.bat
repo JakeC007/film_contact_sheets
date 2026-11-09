@@ -57,12 +57,12 @@ set "PY="
 where py >nul 2>nul && set "PY=py -3"
 if not defined PY where python >nul 2>nul && set "PY=python"
 if not defined PY (
-    echo Python 3.10 or newer was not found. Install it from python.org and tick "Add python.exe to PATH".
+    echo Python 3.11 or newer was not found. Install it from python.org and tick "Add python.exe to PATH".
     exit /b 1
 )
-%PY% -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" 2>nul
+%PY% -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>nul
 if errorlevel 1 (
-    echo %PY% is missing, too old, or the Microsoft Store placeholder. Python 3.10 or newer is required.
+    echo %PY% is missing, too old, or the Microsoft Store placeholder. Python 3.11 or newer is required.
     exit /b 1
 )
 exit /b 0
