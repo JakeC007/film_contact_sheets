@@ -1,4 +1,5 @@
-PySide6>=6.6
+# Essentials = QtCore, QtGui, QtWidgets, QtTest. About a third the size of "PySide6".
+PySide6-Essentials>=6.6
 Pillow>=10.0
 numpy>=1.24
 tifffile>=2023.7.10

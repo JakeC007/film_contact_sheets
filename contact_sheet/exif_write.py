@@ -211,7 +211,10 @@ def _write_exiftool(exiftool: str, src: Path, dst: Path, tags: Tags) -> None:
         fh.write("\n".join(lines) + "\n")
     try:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        # stdin=DEVNULL matters: the stock "exiftool(-k).exe" waits for Enter before exiting,
+        # which would block forever with no console to press it in.
         proc = subprocess.run([exiftool, "-@", argfile], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL,
                               encoding="utf-8", errors="replace", timeout=120, creationflags=flags)
         if proc.returncode != 0:
             raise RuntimeError((proc.stderr or proc.stdout).strip() or f"exit code {proc.returncode}")

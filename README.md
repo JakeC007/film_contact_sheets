@@ -6,6 +6,14 @@ scanner in a header. Built for lab scans that carry little or no EXIF.
 
 ## Running
 
+Double-click `run.bat`. The first run sets up a `.venv` and installs
+dependencies; after that it opens straight away. Drag a scan folder onto
+`run.bat` to open it directly, or use `run.bat --console` to keep a console
+window open for error output. Crashes are also logged to
+`%LOCALAPPDATA%\film_contact_sheets\crash.log`.
+
+By hand:
+
 ```
 python -m venv .venv
 .venv\Scripts\activate

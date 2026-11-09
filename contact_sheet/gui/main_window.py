@@ -751,8 +751,33 @@ class MainWindow(QMainWindow):
         super().closeEvent(e)
 
 
+def _install_crash_log() -> None:
+    """Without a console (pythonw / the .exe) errors would vanish; log them and tell the user."""
+    import os
+    import traceback
+
+    log_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "film_contact_sheets"
+
+    def hook(exc_type, exc, tb):
+        text = "".join(traceback.format_exception(exc_type, exc, tb))
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "crash.log", "a", encoding="utf-8") as fh:
+                fh.write(text + "\n")
+        except OSError:
+            pass
+        if sys.__stderr__:
+            sys.__stderr__.write(text)
+        if QApplication.instance():
+            QMessageBox.critical(None, APP_NAME, f"Something went wrong:\n{exc}\n\n"
+                                 f"Details saved to {log_dir / 'crash.log'}")
+
+    sys.excepthook = hook
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
+    _install_crash_log()
     QApplication.setApplicationName(APP_NAME)
     QApplication.setOrganizationName("film_contact_sheets")
     app = QApplication.instance() or QApplication(argv)
