@@ -179,3 +179,16 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Claude / AI agent files
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.claude.json
+.mcp.json
+
+# Keep our PyInstaller spec (template above ignores *.spec)
+!contact_sheet.spec
+
+# Generated contact sheets and per-roll state from local testing
+sample_output/
