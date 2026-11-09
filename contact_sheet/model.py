@@ -38,6 +38,7 @@ class Frame:
 
 @dataclass
 class Roll:
+    title: str = ""
     film: str = ""
     box_iso: int | None = None
     rated_iso: int | None = None
