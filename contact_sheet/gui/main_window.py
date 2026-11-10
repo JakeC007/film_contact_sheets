@@ -17,11 +17,13 @@ from .. import __version__
 from ..exif_write import COPY_DIR, find_exiftool
 from ..editing import apply_entry, frame_summary, move_frame, next_index, set_exposure
 from ..frames import label_sort_key
+from ..gear import Gear, check_exposure
 from ..library import Library
 from ..model import Roll, load_roll, save_roll
 from ..stops import ParseError
 from .export_dialog import ExportDialog, load_options, store_options
 from .frame_editor import FrameEditor
+from .gear_dialog import GearDialog
 from .workers import ExifJob, ExifSignals, ImageJob, ImageSignals, RenderJob, RenderSignals
 
 APP_NAME = "Film Contact Sheets"
@@ -35,10 +37,11 @@ DIM = QColor(140, 140, 140)
 class RollPanel(QWidget):
     """Left panel: things that are the same for the whole roll."""
 
-    def __init__(self, on_change, library: Library, parent=None):
+    def __init__(self, on_change, library: Library, gear: Gear | None = None, parent=None):
         super().__init__(parent)
         self.on_change = on_change
         self.library = library
+        self.gear = gear or Gear()
         self.roll: Roll | None = None
         self._loading = False
 
@@ -94,10 +97,16 @@ class RollPanel(QWidget):
         c = QComboBox(editable=True)
         c.setInsertPolicy(QComboBox.NoInsert)
         c.setProperty("kind", kind)
-        c.addItems([""] + self.library.values(kind))
+        c.addItems([""] + self.choices(kind))
         c.completer().setCaseSensitivity(Qt.CaseInsensitive)
         c.completer().setFilterMode(Qt.MatchContains)
         return c
+
+    def choices(self, kind: str) -> list[str]:
+        """Saved gear first (cameras / lenses), then anything typed on earlier rolls."""
+        saved = {"camera": self.gear.camera_names(), "lens": self.gear.lens_names()}.get(kind, [])
+        seen = {v.lower() for v in saved}
+        return saved + [v for v in self.library.values(kind) if v.lower() not in seen]
 
     def _combos(self) -> list[QComboBox]:
         return [self.film, self.camera, self.lens, self.scanner, self.location, self.lab]
@@ -107,7 +116,7 @@ class RollPanel(QWidget):
             text = c.currentText()
             c.blockSignals(True)
             c.clear()
-            c.addItems([""] + self.library.values(c.property("kind")))
+            c.addItems([""] + self.choices(c.property("kind")))
             c.setEditText(text)
             c.blockSignals(False)
 
@@ -167,10 +176,12 @@ def _int_or_none(text: str) -> int | None:
 # =========================================================================== main window
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings: QSettings | None = None, library: Library | None = None):
+    def __init__(self, settings: QSettings | None = None, library: Library | None = None,
+                 gear: Gear | None = None):
         super().__init__()
         self.settings = settings or QSettings("film_contact_sheets", "film_contact_sheets")
         self.library = library or Library()
+        self.gear = gear or Gear.load()
         self.pool = QThreadPool.globalInstance()
         self.folder: Path | None = None
         self.roll: Roll | None = None
@@ -187,7 +198,7 @@ class MainWindow(QMainWindow):
         self.resize(1560, 940)
 
         # widgets
-        self.roll_panel = RollPanel(self._roll_changed, self.library)
+        self.roll_panel = RollPanel(self._roll_changed, self.library, self.gear)
         roll_scroll = QScrollArea()
         roll_scroll.setWidgetResizable(True)
         roll_scroll.setWidget(self.roll_panel)
@@ -205,6 +216,7 @@ class MainWindow(QMainWindow):
         self.grid.itemSelectionChanged.connect(self._selection_changed)
 
         self.editor = FrameEditor()
+        self.editor.gear = self.gear
         self.editor.commit_requested.connect(self.commit)
         self.editor.pair_chosen.connect(self.apply_pair)
         self.editor.hidden_toggled.connect(self.set_hidden)
@@ -232,6 +244,9 @@ class MainWindow(QMainWindow):
         self.save_timer.timeout.connect(self.save)
 
         self._build_actions()
+        self.gear_warning = QLabel()
+        self.gear_warning.setStyleSheet("color:#c80; font-weight:bold;")
+        self.statusBar().addPermanentWidget(self.gear_warning)
         self.statusBar().showMessage("Ready")
 
     # ------------------------------------------------------------------ actions
@@ -242,7 +257,7 @@ class MainWindow(QMainWindow):
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
                 a.setShortcutContext(Qt.WindowShortcut)
-            a.triggered.connect(slot)
+            a.triggered.connect(lambda *_, s=slot: s())
             menu.addAction(a)
             self.addAction(a)
             return a
@@ -272,6 +287,9 @@ class MainWindow(QMainWindow):
         act(m, "Copy previous frame to selected", self.copy_previous, "Ctrl+D")
         for n in range(1, 7):
             act(m, f"Use recent pair {n}", lambda _=False, k=n: self.use_recent(k), f"Alt+{n}")
+
+        m = self.menuBar().addMenu("&Gear")
+        act(m, "&Cameras && lenses…", self.edit_gear)
 
         m = self.menuBar().addMenu("&Help")
         act(m, "&About", self.about)
@@ -475,8 +493,16 @@ class MainWindow(QMainWindow):
             return
         first = self.roll.frames[idx[0]]
         self.editor.record_history((first.aperture, first.shutter))
+        self._warn_if_impossible(first)
         self._after_edit(idx)
         self._advance(idx, direction)
+
+    def _warn_if_impossible(self, fr) -> None:
+        """Saved anyway (you know what you shot), but flag values the gear can't set."""
+        lens = self.gear.lens(fr.lens or self.roll.lens)
+        warning = check_exposure(self.gear.camera(self.roll.camera), lens, fr.aperture, fr.shutter)
+        # A permanent status-bar label, so the "Saved" flash doesn't wipe it out.
+        self.gear_warning.setText(f"Frame {fr.label}: {warning}" if warning else "")
 
     def apply_pair(self, aperture, shutter) -> None:
         idx = self.selected()
@@ -576,7 +602,16 @@ class MainWindow(QMainWindow):
         self._schedule_save()
 
     def _lens_choices(self) -> list[str]:
-        return self.library.values("lens")
+        return self.roll_panel.choices("lens")
+
+    def edit_gear(self) -> None:
+        dlg = GearDialog(self.gear, self)
+        if dlg.exec() != GearDialog.Accepted:
+            return
+        self.roll_panel.refresh_choices()
+        self.editor.set_lens_choices(self._lens_choices())
+        self.editor.refresh_hints()
+        self.statusBar().showMessage(f"Gear saved to {self.gear.path}", 4000)
 
     # ------------------------------------------------------------------ save / export
 
@@ -775,14 +810,30 @@ def _install_crash_log() -> None:
     sys.excepthook = hook
 
 
+def _set_windows_app_id() -> None:
+    """Give the process its own taskbar identity so Windows shows our icon, not python's."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("FilmContactSheets.App")
+    except (AttributeError, OSError):
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     _install_crash_log()
+    _set_windows_app_id()  # must run before any window is created
     QApplication.setApplicationName(APP_NAME)
     QApplication.setOrganizationName("film_contact_sheets")
     app = QApplication.instance() or QApplication(argv)
     app.setStyle("Fusion")
+    from ..icon import app_qicon
+    app.setWindowIcon(app_qicon())
     win = MainWindow()
+    if win.gear.load_error:
+        QMessageBox.warning(win, APP_NAME, win.gear.load_error)
     win.show()
     if len(argv) > 1 and Path(argv[1]).is_dir():
         win.open_folder(Path(argv[1]))

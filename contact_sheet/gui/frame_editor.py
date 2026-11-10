@@ -9,8 +9,10 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGridLayout, Q
                                QVBoxLayout, QWidget)
 
 from ..editing import Entry, Suggestion, recent_pairs, suggestion_for
+from ..gear import Gear, aperture_choices, shutter_choices
 from ..model import Roll
-from ..stops import CONDITIONS, exposure_pairs, format_aperture, format_shutter
+from ..stops import (CONDITIONS, ev_at_iso, exposure_pairs, format_aperture, format_shutter,
+                     out_of_range_note)
 
 HELP = (
     "<b>Enter</b> save + next &nbsp; <b>Shift+Enter</b> save + previous &nbsp; "
@@ -86,6 +88,7 @@ class FrameEditor(QWidget):
         self.roll: Roll | None = None
         self.indices: list[int] = []
         self.history: list[tuple] = []
+        self.gear: Gear = Gear()
 
         layout = QVBoxLayout(self)
         self.preview = PreviewLabel()
@@ -109,9 +112,9 @@ class FrameEditor(QWidget):
         self.lens.setInsertPolicy(QComboBox.NoInsert)
         self.note = QLineEdit()
         self.hidden = QCheckBox("&Hidden (leave off the sheet)")
-        self.hidden.clicked.connect(self.hidden_toggled.emit)
+        self.hidden.clicked.connect(lambda *_: self.hidden_toggled.emit(self.hidden.isChecked()))
         rotate = QPushButton("Rotate 90°  (Ctrl+R)")
-        rotate.clicked.connect(self.rotate_requested.emit)
+        rotate.clicked.connect(lambda *_: self.rotate_requested.emit())
 
         form.addRow("Frame #", self.label_edit)
         form.addRow("&Aperture", self.aperture)
@@ -131,7 +134,7 @@ class FrameEditor(QWidget):
 
         save_row = QHBoxLayout()
         save_btn = QPushButton("Save + next  (Enter)")
-        save_btn.clicked.connect(lambda: self.commit_requested.emit(1))
+        save_btn.clicked.connect(lambda *_: self.commit_requested.emit(1))
         save_row.addWidget(save_btn)
         save_row.addStretch(1)
         layout.addLayout(save_row)
@@ -146,10 +149,15 @@ class FrameEditor(QWidget):
         for name, ev in CONDITIONS:
             self.condition.addItem(name, ev)
         self.condition.setCurrentIndex(1)
-        self.condition.currentIndexChanged.connect(self._rebuild_hints)
+        self.condition.currentIndexChanged.connect(lambda *_: self._rebuild_hints())
         hv.addWidget(self.condition)
+        self.hint_info = QLabel()
+        self.hint_info.setWordWrap(True)
+        self.hint_info.setStyleSheet("color:#888;")
+        hv.addWidget(self.hint_info)
         self.hint_grid = QGridLayout()
         hv.addLayout(self.hint_grid)
+        self.lens.editTextChanged.connect(lambda *_: self._rebuild_hints())
         layout.addWidget(hint_box)
 
         help_label = QLabel(HELP)
@@ -294,15 +302,48 @@ class FrameEditor(QWidget):
             btn.clicked.connect(lambda _=False, a=ap, s=sh: self.pair_chosen.emit(a, s))
             self.recent_layout.addWidget(btn, n // 3, n % 3)
 
+    def current_lens_name(self) -> str:
+        """Lens the selected frame was shot with: typed, override, suggestion, or roll lens."""
+        typed = self.lens.currentText().strip()
+        if typed or not self.roll:
+            return typed
+        if len(self.indices) == 1:
+            fr = self.roll.frames[self.indices[0]]
+            if fr.lens:
+                return fr.lens
+            if not fr.has_exposure():
+                sug = suggestion_for(self.roll, self.indices[0])
+                if sug.lens:
+                    return sug.lens
+        return self.roll.lens.strip()
+
     def _rebuild_hints(self) -> None:
         _clear_layout(self.hint_grid)
+        self.hint_info.clear()
         iso = self.roll.effective_iso if self.roll else None
         if not iso:
-            self.hint_grid.addWidget(QLabel("<span style='color:#888'>Set the ISO to see estimates.</span>"), 0, 0)
+            self.hint_info.setText("Set the ISO to see estimates.")
             return
-        pairs = exposure_pairs(self.condition.currentData(), iso)
+        ev100 = self.condition.currentData()
+        camera = self.gear.camera(self.roll.camera)
+        lens = self.gear.lens(self.current_lens_name())
+        apertures, shutters = aperture_choices(lens), shutter_choices(camera)
+
+        limits = []
+        limits.append(f"{camera.name}: {format_shutter(camera.fastest)} to "
+                      f"{format_shutter(camera.slowest)}" if camera else
+                      "camera not in Gear, assuming 1/4000 to 1s")
+        limits.append(f"{lens.name}: {format_aperture(lens.widest)} to "
+                      f"{format_aperture(lens.smallest)}" if lens else
+                      "lens not in Gear, assuming f/1.4 to f/22")
+        self.hint_info.setText(
+            f"EV {ev100:g} at ISO 100 = EV {ev_at_iso(ev100, iso):.1f} at ISO {iso}. "
+            f"Limited to {'; '.join(limits)}.")
+
+        pairs = exposure_pairs(ev100, iso, apertures, shutters)
         if not pairs:
-            self.hint_grid.addWidget(QLabel("<span style='color:#888'>Outside handheld range.</span>"), 0, 0)
+            note = out_of_range_note(ev100, iso, apertures, shutters) or "No settings fit."
+            self.hint_grid.addWidget(QLabel(f"<span style='color:#c80'>{note}</span>"), 0, 0)
             return
         for n, (ap, sh) in enumerate(pairs):
             btn = QPushButton(_pair_text(ap, sh))

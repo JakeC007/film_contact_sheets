@@ -196,3 +196,21 @@ def test_overview_renders_without_captions(tmp_path, monkeypatch):
     assert "Lisbon" in text and "Kodak Gold 200" in text and "Some notes" in text
     assert "f/8" not in text and "1/125" not in text and "frame note" not in text
     assert not any(t == roll.frames[0].label for t in drawn)
+
+
+def test_compact_light_background(tmp_path):
+    roll = _make_roll(tmp_path, n=2)
+    img = render.render_sheet(roll, tmp_path, render.SheetOptions(style="compact", theme="light",
+                                                                   cell_width=260))
+    assert img.getpixel((img.width - 1, img.height - 1)) == render.COMPACT_THEMES["light"]["bg"]
+    dark = render.render_sheet(roll, tmp_path, render.SheetOptions(style="compact", cell_width=260))
+    assert dark.getpixel((dark.width - 1, dark.height - 1)) == (0, 0, 0)
+
+
+def test_icon_files(tmp_path):
+    from contact_sheet import icon
+    assert icon.icon_image(64).size == (64, 64)
+    ico = icon.write_ico(tmp_path / "app.ico")
+    with Image.open(ico) as im:
+        assert im.format == "ICO"
+        assert (256, 256) in im.info["sizes"] and (16, 16) in im.info["sizes"]

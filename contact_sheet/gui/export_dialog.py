@@ -67,8 +67,8 @@ class ExportDialog(QDialog):
         form.addRow("Frame size", self.cell_width)
 
         self.theme = QComboBox()
-        self.theme.addItem("Dark", "dark")
-        self.theme.addItem("Light", "light")
+        self.theme.addItem("Dark (Compact: black with yellow captions)", "dark")
+        self.theme.addItem("Light (paper white)", "light")
         self.theme.setCurrentIndex(max(0, self.theme.findData(opts.theme)))
         form.addRow("Background", self.theme)
 
@@ -83,7 +83,6 @@ class ExportDialog(QDialog):
                               checked=default_fill if opts.fill is None else opts.fill)
         form.addRow("", self.fill)
         self.layout_style.currentIndexChanged.connect(self._style_changed)
-        self.theme.setEnabled(opts.style != "compact")
 
         self.show_notes = QCheckBox("Show notes", checked=opts.show_notes)
         self.show_filename = QCheckBox("Show filenames", checked=opts.show_filename)
@@ -133,9 +132,7 @@ class ExportDialog(QDialog):
 
     def _style_changed(self) -> None:
         style = self.layout_style.currentData()
-        compact = style == "compact"
         self.fill.setChecked(style in ("compact", "overview"))
-        self.theme.setEnabled(not compact)  # compact is always black with yellow text
         self.show_filename.setEnabled(style != "overview")
 
     def _exif_toggled(self, on: bool) -> None:

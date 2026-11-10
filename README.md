@@ -51,13 +51,42 @@ them; only the fields you type in are applied.
 
 * **Standard**: header block with film, ISO, camera, lens and scanner, spaced
   frames, dark or light background.
-* **Compact**: frames packed edge to edge on black with a 1 px seam, a thin
-  caption strip of small yellow text above each one, and the roll details on a
-  single strip at the top. Frames are cropped slightly to fill their cells
-  (untick "Crop frames to fill cells" to keep the full scan).
+* **Compact**: frames packed edge to edge with a 1 px seam, a thin caption
+  strip above each one, and the roll details on a single strip at the top.
+  Dark is black with yellow captions; Light is paper white with dark text.
+  Frames are cropped slightly to fill their cells (untick "Crop frames to fill
+  cells" to keep the full scan).
 * **Roll overview**: no per-frame text at all. A large heading (title, or the
   film), then labelled roll facts: film, ISO, camera, every lens used on the
   roll, location, date, who developed it, scanner, frame count and notes.
+
+## Cameras and lenses (Gear)
+
+The Camera and Lens dropdowns list your saved gear first, then anything typed
+on earlier rolls. A Pentax MX (1/1000 to 1 s, B) with SMC Pentax-M 50mm f/1.7,
+50mm f/1.4 and 28mm f/2.8 lenses is set up on first run.
+
+The gear's limits do two things:
+
+* The "Estimate from the light" buttons only suggest settings the camera and
+  lens can make (no 1/2000 on an MX, nothing wider than f/1.7 on the 50/1.7).
+  If nothing fits, it says whether the scene is too bright or too dark.
+* Saving a frame the gear couldn't have shot (say 1/2000 on the MX) still
+  saves it, but shows an orange warning in the status bar.
+
+The match is by exact name (not case-sensitive), so pick the camera and lens
+from the dropdown. A name that isn't in Gear falls back to 1/4000 to 1 s and
+f/1.4 to f/22.
+
+**Editing:** Gear > Cameras & lenses. Add, remove or edit rows (double-click
+a cell), then Save. Shutter speeds are typed like the frame editor (`1000`,
+`1/1000`, `1s`); apertures like `1.7` and `22`. "Add Pentax MX kit" puts the
+built-in entries back if you deleted them.
+
+**By hand:** the list lives in `%APPDATA%\film_contact_sheets\gear.json`.
+"Open file…" in the same dialog opens it; edit, save, then "Reload from file".
+If the file has a typo the app says so and uses the built-in list without
+overwriting your file. Copy this file to move your gear to another PC.
 
 ## EXIF
 
@@ -86,6 +115,30 @@ Windows ExifTool download into `vendor\exiftool\` (rename `exiftool(-k).exe`
 to `exiftool.exe`, keep the `exiftool_files` folder next to it) before building.
 Set `ONEFILE = True` in `contact_sheet.spec` for a single-file exe that starts
 more slowly.
+
+### Moving or installing the built app
+
+The build is a **folder**, not a lone exe: `dist\FilmContactSheets\` holds
+`FilmContactSheets.exe` plus an `_internal` folder with Python, Qt and the
+libraries. The exe will not start without `_internal` next to it.
+
+* Move or copy the whole `FilmContactSheets` folder anywhere, e.g.
+  `C:\Users\<you>\Apps\FilmContactSheets` or a USB stick. Then right-click the
+  exe > Send to > Desktop (create shortcut), or pin it to the taskbar/Start.
+  Don't drag the exe out on its own; use a shortcut instead.
+* It does not need Python, the repo or the `.venv`. You can delete the repo
+  and the app keeps working.
+* To share it with another PC, zip the `FilmContactSheets` folder. Windows
+  SmartScreen may warn the first time, because the exe isn't code-signed.
+* Your data isn't inside the app folder, so moving or rebuilding it loses nothing:
+  roll entries in `contact_sheet_roll.json` in each scan folder; gear in
+  `%APPDATA%\film_contact_sheets\gear.json`; remembered film/lens names in
+  `library.json` next to it; window and export settings in the registry
+  (`HKCU\Software\film_contact_sheets`); thumbnails and the crash log in
+  `%LOCALAPPDATA%\film_contact_sheets`.
+* For a single file you can move by itself, set `ONEFILE = True` in
+  `contact_sheet.spec` and rebuild. The trade-off is slower start-up, because it
+  unpacks itself to a temp folder on every launch.
 
 ## Typing exposures
 

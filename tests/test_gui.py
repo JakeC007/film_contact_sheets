@@ -1,6 +1,7 @@
 """Smoke tests for the GUI, run headless."""
 
 import os
+import sys
 
 import pytest
 
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from contact_sheet import model  # noqa: E402
 from contact_sheet.gui.main_window import MainWindow  # noqa: E402
+from contact_sheet.gear import Gear  # noqa: E402
 from contact_sheet.library import Library  # noqa: E402
 
 
@@ -30,13 +32,22 @@ def window(app, tmp_path, monkeypatch):
     for i in range(1, 6):
         Image.new("RGB", (300, 200), (40 * i, 80, 120)).save(scans / f"x-R1-0{i}-{i}.jpg")
     settings = QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat)
-    win = MainWindow(settings=settings, library=Library(tmp_path / "lib.json"))
+    win = MainWindow(settings=settings, library=Library(tmp_path / "lib.json"),
+                     gear=Gear.load(tmp_path / "gear.json"))
     win.show()
     win.open_folder(scans)
     win.pool.waitForDone(5000)
     app.processEvents()
     yield win, scans
     win.close()
+
+
+@pytest.fixture
+def slot_errors(monkeypatch):
+    """PySide6 reports exceptions raised inside slots via sys.excepthook; collect them."""
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda *exc: errors.append(exc[1]))
+    return errors
 
 
 def _type(widget, text):
@@ -167,3 +178,113 @@ def test_render_job_runs(window, app, tmp_path):
     win.pool.waitForDone(10000)
     app.processEvents()
     assert done and out.exists()
+
+
+def test_hidden_checkbox_click_does_not_crash(window, app, slot_errors):
+    win, _ = window
+    win.select(1)
+    app.processEvents()
+    box = win.editor.hidden
+    from PySide6.QtCore import QPoint
+    # A real mouse click on the box itself, the path that crashed before.
+    QTest.mouseClick(box, Qt.LeftButton, Qt.NoModifier, QPoint(8, box.height() // 2))
+    app.processEvents()
+    assert not slot_errors, slot_errors
+    assert win.roll.frames[1].hidden is True
+    # and back again, applied to several selected frames
+    for i in (1, 2):
+        win.grid.item(i).setSelected(True)
+    app.processEvents()
+    box.click()
+    app.processEvents()
+    assert not slot_errors, slot_errors
+    assert [f.hidden for f in win.roll.frames[1:3]] in ([False, False], [True, True])
+
+
+def test_rotate_button_and_menu_actions_do_not_crash(window, app, slot_errors):
+    win, _ = window
+    win.select(0)
+    app.processEvents()
+    from PySide6.QtWidgets import QPushButton
+    rotate = next(b for b in win.editor.findChildren(QPushButton) if b.text().startswith("Rotate"))
+    rotate.click()
+    for action in win.actions():
+        if action.text() in ("Rotate 90°", "Next frame (no save)", "Previous frame (no save)"):
+            action.trigger()
+    app.processEvents()
+    assert not slot_errors, slot_errors
+    assert win.roll.frames[0].rotation in (90, 180)
+
+
+def test_gear_dropdowns_and_limited_hints(window, app):
+    win, _ = window
+    panel = win.roll_panel
+    cams = [panel.camera.itemText(i) for i in range(panel.camera.count())]
+    lenses = [panel.lens.itemText(i) for i in range(panel.lens.count())]
+    assert "Pentax MX" in cams and "SMC Pentax-M 50mm f/1.7" in lenses
+
+    panel.film.setEditText("Kodak Portra 400")
+    panel.box_iso.setText("400")
+    panel.rated_iso.setText("800")
+    panel.camera.setEditText("Pentax MX")
+    panel.lens.setEditText("SMC Pentax-M 50mm f/1.7")
+    app.processEvents()
+    from PySide6.QtWidgets import QPushButton
+    labels = [w.text() for w in win.editor.findChildren(QPushButton)
+              if w.parent() is not None and win.editor.hint_grid.indexOf(w) >= 0]
+    assert labels and not any("1/2000" in t or "1/4000" in t for t in labels), labels
+    assert "Pentax MX: 1/1000 to 1s" in win.editor.hint_info.text()
+
+
+def test_impossible_entry_is_saved_but_flagged(window, app):
+    win, _ = window
+    win.roll_panel.camera.setEditText("Pentax MX")
+    app.processEvents()
+    win.select(0)
+    ed = win.editor
+    _type(ed.aperture, "8")
+    _type(ed.shutter, "2000")
+    QTest.keyClick(ed.shutter, Qt.Key_Return)
+    assert win.roll.frames[0].shutter == "1/2000"
+    assert "faster than Pentax MX" in win.gear_warning.text()
+    _type(ed.aperture, "8")
+    _type(ed.shutter, "500")
+    QTest.keyClick(ed.shutter, Qt.Key_Return)
+    assert win.gear_warning.text() == ""
+
+
+def test_gear_dialog_edit_and_save(window, app):
+    from contact_sheet.gui.gear_dialog import GearDialog
+    win, _ = window
+    dlg = GearDialog(win.gear, win)
+    dlg._add_row("camera")
+    r = dlg.cameras.rowCount() - 1
+    dlg.cameras.item(r, 0).setText("Nikon FM2")
+    dlg.cameras.item(r, 1).setText("4000")        # typed like the frame editor
+    dlg.cameras.item(r, 2).setText("1s")
+    cams, lenses = dlg.collect()
+    assert cams[-1].name == "Nikon FM2" and cams[-1].fastest == "1/4000"
+    dlg._save()
+    assert Gear.load(win.gear.path).camera("Nikon FM2") is not None
+
+    dlg2 = GearDialog(win.gear, win)
+    dlg2.lenses.item(0, 1).setText("banana")
+    from contact_sheet.stops import ParseError
+    with pytest.raises(ParseError):
+        dlg2.collect()
+
+
+def test_compact_layout_allows_light_background(window, app):
+    from contact_sheet.gui.export_dialog import ExportDialog
+    from contact_sheet.render import SheetOptions
+    win, scans = window
+    dlg = ExportDialog(scans, SheetOptions(style="compact"), "jpg", "")
+    assert dlg.theme.isEnabled()
+    dlg.theme.setCurrentIndex(dlg.theme.findData("light"))
+    assert dlg.options().theme == "light" and dlg.options().style == "compact"
+
+
+def test_app_icon_has_all_sizes(app):
+    from contact_sheet.icon import ICO_SIZES, app_qicon
+    sizes = {(s.width(), s.height()) for s in app_qicon().availableSizes()}
+    assert {(n, n) for n in ICO_SIZES} <= sizes

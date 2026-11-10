@@ -173,34 +173,64 @@ def push_pull_label(box_iso: int | None, rated_iso: int | None) -> str:
 
 # --------------------------------------------------------------------------- estimates
 
-# Light conditions as EV at ISO 100. "Sun" is the sunny 16 rule (f/16 at 1/ISO).
+# Light conditions as EV at ISO 100, from the standard exposure-value tables.
+# "Sun" is the sunny 16 rule: f/16 at 1/ISO.
 CONDITIONS: list[tuple[str, float]] = [
-    ("Snow / sand", 16),
-    ("Sun", 15),
-    ("Haze", 14),
-    ("Overcast", 13),
+    ("Snow / sand in sun", 16),
+    ("Sun, hard shadows (sunny 16)", 15),
+    ("Hazy sun, soft shadows", 14),
+    ("Cloudy bright, no shadows", 13),
     ("Heavy overcast / open shade", 12),
-    ("Sunset", 11),
-    ("Dusk / bright interior", 9),
-    ("Interior", 7),
-    ("Night street", 5),
+    ("Sunset, lit by low sun", 12),
+    ("Just after sunset", 10),
+    ("Bright interior / office", 8),
+    ("Bright city street at night", 7),
+    ("Home interior", 6),
 ]
+
+DEFAULT_HINT_APERTURES = FULL_APERTURES[1:10]                     # f/1.4 to f/22
+DEFAULT_HINT_SHUTTERS = [s for s in FULL_SHUTTERS if 1 / 4000 <= s <= 1]
+
+
+def ev_at_iso(ev100: float, iso: int) -> float:
+    if not iso or iso <= 0:
+        raise ValueError("ISO required for exposure estimates")
+    return ev100 + math.log2(iso / 100)
 
 
 def exposure_pairs(ev100: float, iso: int, apertures: list[float] | None = None,
-                   min_shutter: float = 1 / 4000, max_shutter: float = 1.0
-                   ) -> list[tuple[float, str]]:
-    """Aperture / full-stop shutter pairs that give roughly ev100 at the given ISO."""
-    if not iso or iso <= 0:
-        raise ValueError("ISO required for exposure estimates")
-    ev = ev100 + math.log2(iso / 100)
+                   shutters: list[float] | None = None) -> list[tuple[float, str]]:
+    """Aperture / shutter pairs, restricted to the given settings, that give ev100 at this ISO.
+
+    A pair is kept when the nearest available shutter speed is within half a stop of
+    the exact time, so every suggestion is something the camera can be set to.
+    """
+    ev = ev_at_iso(ev100, iso)
+    shutters = sorted(shutters or DEFAULT_HINT_SHUTTERS)
     pairs = []
-    for n in apertures or FULL_APERTURES[1:10]:  # f/1.4 to f/22
+    for n in apertures or DEFAULT_HINT_APERTURES:
         t = n * n / (2 ** ev)
-        if not min_shutter * 0.7 <= t <= max_shutter * 1.4:
-            continue
-        nearest = min(FULL_SHUTTERS, key=lambda s: abs(math.log2(s) - math.log2(t)))
-        if abs(math.log2(nearest) - math.log2(t)) > 0.5:
-            continue
-        pairs.append((n, seconds_to_shutter(nearest)))
+        nearest = min(shutters, key=lambda s: abs(math.log2(s / t)))
+        if abs(math.log2(nearest / t)) <= 0.5 + 1e-9:
+            pairs.append((n, seconds_to_shutter(nearest)))
     return pairs
+
+
+def out_of_range_note(ev100: float, iso: int, apertures: list[float] | None = None,
+                      shutters: list[float] | None = None) -> str:
+    """Why exposure_pairs came back empty: too bright or too dark for this gear."""
+    ev = ev_at_iso(ev100, iso)
+    apertures = apertures or DEFAULT_HINT_APERTURES
+    shutters = sorted(shutters or DEFAULT_HINT_SHUTTERS)
+    smallest, widest = max(apertures), min(apertures)
+    fastest, slowest = shutters[0], shutters[-1]
+    t_small = smallest ** 2 / 2 ** ev
+    if t_small < fastest:
+        over = math.log2(fastest / t_small)
+        return (f"Too bright: even {format_aperture(smallest)} at {seconds_to_shutter(fastest)} "
+                f"is about {over:.0f} stop{'s' if round(over) != 1 else ''} over.")
+    t_wide = widest ** 2 / 2 ** ev
+    if t_wide > slowest:
+        needed = seconds_to_shutter(round(t_wide) if t_wide >= 2 else t_wide)
+        return f"Too dark for the dial: {format_aperture(widest)} needs about {needed} (use B)."
+    return ""

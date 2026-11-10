@@ -279,10 +279,12 @@ def _draw_caption(draw, fr: Frame, roll: Roll, opts: SheetOptions, theme, x0, y0
 # Proportions are taken from a 260 px-wide reference cell: 18 px strip,
 # ~12 px type, 4 px left padding.
 
-COMPACT_BG = (0, 0, 0)
-COMPACT_TEXT = (232, 228, 60)
-COMPACT_DIM = (165, 160, 70)
-COMPACT_ERROR = (200, 70, 70)
+# "dark" matches the reference sheet: black with yellow type. "light" is paper white
+# with near-black type (yellow on white would be unreadable).
+COMPACT_THEMES = {
+    "dark": dict(bg=(0, 0, 0), text=(232, 228, 60), dim=(165, 160, 70), error=(200, 70, 70)),
+    "light": dict(bg=(246, 244, 240), text=(28, 28, 28), dim=(115, 112, 105), error=(180, 40, 40)),
+}
 
 
 def compact_header_text(roll: Roll, title: str = "") -> str:
@@ -329,7 +331,8 @@ def _render_compact(roll: Roll, folder: Path, opts: SheetOptions,
 
     cell_h = strip_h + ch
     height = header_h + rows * cell_h + (rows - 1) * seam
-    sheet = Image.new("RGB", (width, height), COMPACT_BG)
+    t = COMPACT_THEMES.get(opts.theme, COMPACT_THEMES["dark"])
+    sheet = Image.new("RGB", (width, height), t["bg"])
     draw = ImageDraw.Draw(sheet)
 
     def strip_text(x, y, text, color):
@@ -337,7 +340,7 @@ def _render_compact(roll: Roll, folder: Path, opts: SheetOptions,
         draw.text((x + pad, ty), text, font=f, fill=color)
 
     for n, line in enumerate(header_lines):
-        strip_text(0, n * strip_h, line, COMPACT_TEXT if n == 0 else COMPACT_DIM)
+        strip_text(0, n * strip_h, line, t["text"] if n == 0 else t["dim"])
 
     total = len(frames)
     for i, fr in enumerate(frames):
@@ -345,13 +348,13 @@ def _render_compact(roll: Roll, folder: Path, opts: SheetOptions,
         x0 = c * (cw + seam)
         y0 = header_h + r * (cell_h + seam)
         cap = _ellipsize(draw, compact_caption(fr, roll, opts.show_filename), f, cw - 2 * pad)
-        strip_text(x0, y0, cap, COMPACT_TEXT)
+        strip_text(x0, y0, cap, t["text"])
         if opts.show_notes and fr.note.strip():
             used = _text_w(draw, cap, f) + pad * 3
             if used < cw - 40 * k:
                 note = _ellipsize(draw, fr.note.strip(), f, cw - used - pad)
                 draw.text((x0 + used, y0 + (strip_h - f.size) // 2 - max(1, round(k))), note,
-                          font=f, fill=COMPACT_DIM)
+                          font=f, fill=t["dim"])
         img_y = y0 + strip_h
         try:
             img = load_image(folder / fr.filename, max_side=cw * 2)
@@ -360,7 +363,7 @@ def _render_compact(roll: Roll, folder: Path, opts: SheetOptions,
         except (ImageLoadError, FileNotFoundError):
             for j, msg in enumerate(("Can't open file", fr.filename)):
                 draw.text((x0 + pad, img_y + ch // 2 - f.size + j * round(f.size * 1.3)),
-                          _ellipsize(draw, msg, f, cw - 2 * pad), font=f, fill=COMPACT_ERROR)
+                          _ellipsize(draw, msg, f, cw - 2 * pad), font=f, fill=t["error"])
         if progress:
             progress(i + 1, total)
     return sheet
