@@ -1,4 +1,7 @@
-"""Remembered film stocks, cameras, lenses, scanners, places and labs across rolls.
+"""Remembered film stocks, scanners, places and labs across rolls.
+
+Cameras and lenses are not remembered here: only what's saved in Gear shows in
+those dropdowns, so a one-off typed into the roll never becomes a choice.
 
 Stored in %APPDATA%\\film_contact_sheets\\library.json (or ~/.config elsewhere).
 """
@@ -12,7 +15,7 @@ from pathlib import Path
 
 from .model import Roll
 
-KINDS = ("film", "camera", "lens", "scanner", "location", "lab")
+KINDS = ("film", "scanner", "location", "lab")   # older files' "camera"/"lens" are dropped
 MAX_ITEMS = 60
 COMMON_ISOS = {25, 32, 50, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800,
                1000, 1250, 1600, 3200, 6400}
@@ -83,11 +86,10 @@ class Library:
         self.items[kind] = [value] + lst[: MAX_ITEMS - 1]
 
     def remember_roll(self, roll: Roll) -> None:
+        """Call with a finished roll (on export, switching folder, closing), not on every
+        keystroke autosave, or half-typed words end up in the dropdowns."""
         for kind in KINDS:
             self.remember(kind, getattr(roll, kind))
-        for fr in roll.frames:
-            if fr.lens:
-                self.remember("lens", fr.lens)
         if roll.film.strip() and roll.box_iso:
             self.film_iso[roll.film.strip()] = int(roll.box_iso)
 

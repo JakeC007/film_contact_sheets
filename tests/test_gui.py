@@ -305,3 +305,32 @@ def test_app_icon_has_all_sizes(app):
     from contact_sheet.icon import ICO_SIZES, app_qicon
     sizes = {(s.width(), s.height()) for s in app_qicon().availableSizes()}
     assert {(n, n) for n in ICO_SIZES} <= sizes
+
+
+def test_typed_camera_is_a_one_off_and_partials_are_never_remembered(window, app):
+    win, scans = window
+    panel = win.roll_panel
+
+    def items(combo):
+        return [combo.itemText(i) for i in range(combo.count()) if combo.itemText(i)]
+
+    # Typing letter by letter, with autosaves in between, used to save "P", "Pe", ...
+    for partial in ("P", "Pe", "Pen"):
+        panel.camera.setEditText(partial)
+        panel.location.setEditText(partial)
+        win.save()
+    assert win.roll.camera == "Pen"                      # kept on this roll
+    assert model.load_roll(scans).camera == "Pen"        # and in its JSON
+    assert items(panel.camera) == ["Pentax MX"]          # dropdown is Gear only
+    assert "Pen" not in win.library.values("location")   # nothing remembered mid-typing
+
+    # Finished values are remembered when the roll is put away (folder switch / close / export).
+    panel.location.setEditText("Edinburgh")
+    panel.lens.setEditText("Some borrowed 35mm")
+    win.remember_roll()
+    assert win.library.values("location") == ["Edinburgh"]
+    assert "Some borrowed 35mm" not in items(panel.lens)
+    assert items(panel.lens) == ["SMC Pentax 50mm f/1.4", "Pentax 28mm f/2.8"]
+    lens_override = [win.editor.lens.itemText(i) for i in range(win.editor.lens.count())
+                     if win.editor.lens.itemText(i)]
+    assert lens_override == ["SMC Pentax 50mm f/1.4", "Pentax 28mm f/2.8"]

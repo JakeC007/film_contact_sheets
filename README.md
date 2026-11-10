@@ -26,7 +26,10 @@ pytest
 
 1. Open a folder of scans (Ctrl+O, or drag the folder onto the window).
 2. Fill the roll panel once: film, ISO, camera, lens, scanner. Film names like
-   "Portra 400" fill in the box ISO; everything you type is remembered for next time.
+   "Portra 400" fill in the box ISO. Film, scanner, location and lab are
+   remembered for next time (when you export, switch folder or close the app).
+   Camera and lens dropdowns only list what's saved in Gear; anything else you
+   type there is a one-off for that roll.
 3. Enter exposures frame by frame. A new frame shows the previous frame's
    values in grey; press Enter to accept them, or type over them.
 4. Ctrl+E to export the sheet.
@@ -62,8 +65,10 @@ them; only the fields you type in are applied.
 
 ## Cameras and lenses (Gear)
 
-The Camera and Lens dropdowns list your saved gear first, then anything typed
-on earlier rolls. A Pentax MX (1/1000 to 1 s, B) with an SMC Pentax 50mm f/1.4
+The Camera and Lens dropdowns list only your saved gear. To make a camera or
+lens a choice, add it in Gear and then pick it; typing a name that isn't in
+Gear is fine for a one-off (it's kept on that roll and printed on its sheet)
+but it won't be offered again. A Pentax MX (1/1000 to 1 s, B) with an SMC Pentax 50mm f/1.4
 and a Pentax 28mm f/2.8 (both to f/22) is set up on first run.
 
 The gear's limits do two things:

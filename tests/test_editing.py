@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from contact_sheet import editing, library, model
@@ -125,20 +127,34 @@ def test_iso_from_name(name, iso):
     assert library.iso_from_film_name(name) == iso
 
 
-def test_library_roundtrip(tmp_path):
+def test_library_roundtrip_ignores_camera_and_lens(tmp_path):
     lib = library.Library(tmp_path / "lib.json")
-    r = model.Roll(film="Kodak Gold 200", box_iso=200, camera="Nikon FM2", lens="50mm")
+    r = model.Roll(film="Kodak Gold 200", box_iso=200, camera="Nikon FM2", lens="50mm",
+                   location="Scotland", scanner="Fujifilm")
     r.frames = [model.Frame("a.jpg", lens="28mm")]
     lib.remember_roll(r)
     lib.save()
     again = library.Library(tmp_path / "lib.json")
-    assert again.values("camera") == ["Nikon FM2"]
-    assert again.values("lens")[:2] == ["28mm", "50mm"]
     assert again.values("film")[0] == "Kodak Gold 200"
+    assert again.values("location") == ["Scotland"]
     assert again.box_iso_for("Kodak Gold 200") == 200
+    saved = json.loads((tmp_path / "lib.json").read_text())
+    assert "camera" not in saved and "lens" not in saved
+
+
+def test_old_library_with_partial_camera_names_is_cleaned(tmp_path):
+    # What an earlier version wrote: half-typed names saved by autosave.
+    p = tmp_path / "lib.json"
+    p.write_text(json.dumps({"film": ["Kodak Gold 200"], "camera": ["Pentax MX", "Pe", "P"],
+                             "lens": ["50 mm"], "film_iso": {"Kodak Gold 200": 200}}))
+    lib = library.Library(p)
+    assert lib.values("camera") == [] and lib.values("lens") == []
+    lib.save()
+    saved = json.loads(p.read_text())
+    assert "camera" not in saved and saved["film"] == ["Kodak Gold 200"]
 
 
 def test_library_survives_corrupt_file(tmp_path):
     p = tmp_path / "lib.json"
     p.write_text("{not json")
-    assert library.Library(p).values("camera") == []
+    assert library.Library(p).values("location") == []

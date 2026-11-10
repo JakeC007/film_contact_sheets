@@ -103,10 +103,12 @@ class RollPanel(QWidget):
         return c
 
     def choices(self, kind: str) -> list[str]:
-        """Saved gear first (cameras / lenses), then anything typed on earlier rolls."""
-        saved = {"camera": self.gear.camera_names(), "lens": self.gear.lens_names()}.get(kind, [])
-        seen = {v.lower() for v in saved}
-        return saved + [v for v in self.library.values(kind) if v.lower() not in seen]
+        """Camera / lens: only what's saved in Gear. Other fields: values from earlier rolls."""
+        if kind == "camera":
+            return self.gear.camera_names()
+        if kind == "lens":
+            return self.gear.lens_names()
+        return self.library.values(kind)
 
     def _combos(self) -> list[QComboBox]:
         return [self.film, self.camera, self.lens, self.scanner, self.location, self.lab]
@@ -310,6 +312,7 @@ class MainWindow(QMainWindow):
     def open_folder(self, folder: Path) -> None:
         if self.roll and self.folder:
             self.save()
+            self.remember_roll()
         try:
             roll = load_roll(folder)
         except Exception as exc:
@@ -618,14 +621,23 @@ class MainWindow(QMainWindow):
     def _schedule_save(self) -> None:
         self.save_timer.start()
 
+    def remember_roll(self) -> None:
+        """Add this roll's film / scanner / place / lab to the dropdowns for next time."""
+        if not self.roll:
+            return
+        self.library.remember_roll(self.roll)
+        try:
+            self.library.save()
+        except OSError:
+            pass
+        self.roll_panel.refresh_choices()
+
     def save(self) -> None:
         self.save_timer.stop()
         if not self.roll or not self.folder:
             return
         try:
             save_roll(self.roll, self.folder)
-            self.library.remember_roll(self.roll)
-            self.library.save()
             self.statusBar().showMessage("Saved", 1500)
         except OSError as exc:
             self.statusBar().showMessage(f"Save failed: {exc}")
@@ -652,6 +664,7 @@ class MainWindow(QMainWindow):
             self.roll.title = opts.title
             self.roll_panel.set_roll(self.roll)
         self.save()
+        self.remember_roll()
         out = dlg.output_path()
 
         progress = self._progress("Rendering contact sheet…", len(self.roll.visible_frames()))
@@ -780,6 +793,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e) -> None:
         self.save()
+        self.remember_roll()
         self.generation += 1    # ignore anything still in flight
         self.pool.clear()       # drop queued thumbnail jobs
         self.pool.waitForDone(5000)
