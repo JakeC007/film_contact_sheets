@@ -32,6 +32,10 @@ STARTER_FILMS = [
     "CineStill 800T", "CineStill 400D", "CineStill 50D", "Lomography Color 400",
 ]
 
+# Always offered in the Scanner dropdown, after anything used on earlier rolls.
+STARTER_SCANNERS = ["Noritsu", "Fuji Frontier"]
+STARTERS = {"film": STARTER_FILMS, "scanner": STARTER_SCANNERS}
+
 
 def default_path() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home() / ".config")
@@ -76,8 +80,8 @@ class Library:
 
     def values(self, kind: str) -> list[str]:
         vals = list(self.items.get(kind, []))
-        if kind == "film":
-            vals += [f for f in STARTER_FILMS if f not in vals]
+        seen = {v.lower() for v in vals}
+        vals += [s for s in STARTERS.get(kind, []) if s.lower() not in seen]
         return vals
 
     def remember(self, kind: str, value: str) -> None:

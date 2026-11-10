@@ -136,10 +136,19 @@ def test_library_roundtrip_ignores_camera_and_lens(tmp_path):
     lib.save()
     again = library.Library(tmp_path / "lib.json")
     assert again.values("film")[0] == "Kodak Gold 200"
-    assert again.values("scanner") == ["Fujifilm"]
+    assert again.values("scanner") == ["Fujifilm", "Noritsu", "Fuji Frontier"]
     assert again.box_iso_for("Kodak Gold 200") == 200
     saved = json.loads((tmp_path / "lib.json").read_text())
     assert "camera" not in saved and "lens" not in saved and "location" not in saved
+    assert saved["scanner"] == ["Fujifilm"]          # presets aren't copied into the file
+
+
+def test_scanner_presets(tmp_path):
+    lib = library.Library(tmp_path / "none.json")
+    assert lib.values("scanner") == ["Noritsu", "Fuji Frontier"]
+    lib.remember("scanner", "noritsu")              # same scanner typed in lower case
+    assert lib.values("scanner") == ["noritsu", "Fuji Frontier"]
+    assert library.Library(tmp_path / "none.json").values("lab") == []
 
 
 def test_old_library_with_partial_camera_names_is_cleaned(tmp_path):
