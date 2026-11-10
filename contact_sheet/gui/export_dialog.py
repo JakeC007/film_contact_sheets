@@ -43,7 +43,8 @@ class ExportDialog(QDialog):
     def __init__(self, folder: Path, opts: SheetOptions, fmt: str, title: str,
                  parent: QWidget | None = None, *, write_exif: bool = False,
                  exif_mode: str = "copy", exiftool: str | None = None,
-                 allow_exif: bool = True, digital: bool = False):
+                 allow_exif: bool = True, digital: bool = False,
+                 empty_parts: dict[str, str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Export contact sheet")
         self.folder = folder
@@ -97,11 +98,18 @@ class ExportDialog(QDialog):
         self.show_camera.setToolTip("Digital sets: only printed for frames from a second body")
         self.show_notes.setToolTip("Frame notes, and the roll notes in the header")
         self.show_filename.setToolTip("On digital sets the file name replaces the frame number")
-        self.digital_only = (self.show_iso, self.show_focal, self.show_camera)
-        for box in self.digital_only:
-            box.setEnabled(digital)
-            if not digital:
-                box.setToolTip("Digital sets only: film frames share the roll's ISO and body")
+        # Grey out parts that wouldn't print anything on this roll (same lens / body
+        # throughout, film frames with no ISO...). Their ticks are kept for next time.
+        if empty_parts is None:
+            empty_parts = {} if digital else {
+                k: "Digital sets only: film frames share the roll's ISO and camera"
+                for k in ("camera", "iso", "focal")}
+        boxes = {"lens": self.show_lens, "camera": self.show_camera,
+                 "iso": self.show_iso, "focal": self.show_focal}
+        self._unusable = {boxes[k] for k in empty_parts if k in boxes}
+        for key, reason in empty_parts.items():
+            if key in boxes:
+                boxes[key].setToolTip(f"{reason}, so there's nothing to show.")
         self.caption_boxes = (self.show_exposure, self.show_iso, self.show_focal,
                               self.show_lens, self.show_camera, self.show_notes,
                               self.show_filename)
@@ -109,7 +117,6 @@ class ExportDialog(QDialog):
         for n, box in enumerate(self.caption_boxes):
             grid.addWidget(box, n // 3, n % 3)
         form.addRow("Under each frame", grid)
-        self._digital = digital
         self._set_caption_boxes_enabled(opts.style != "overview")
 
         self.fmt = QComboBox()
@@ -166,7 +173,7 @@ class ExportDialog(QDialog):
         for box in self.caption_boxes:
             if box is self.show_notes:
                 continue
-            box.setEnabled(on and (self._digital or box not in self.digital_only))
+            box.setEnabled(on and box not in self._unusable)
 
     def _exif_toggled(self, on: bool) -> None:
         self.exif_mode.setEnabled(on)

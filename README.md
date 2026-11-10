@@ -69,7 +69,10 @@ Unticking only affects the exported sheet. ISO, focal length and camera apply
 to digital sets. On digital sets, File names replaces the frame number
 (`IMG_7826` rather than `7826 IMG_7826`). A focal length is left out when the
 lens name on the same line already states it (`24mm F1.4...`). Your choices
-are remembered for the next export.
+are remembered for the next export. Toggles that wouldn't change anything on
+this roll are greyed out, with the reason on hover: Lens when every frame uses
+the roll lens, Camera when every frame is from the same body, ISO / focal length
+when no frame has one.
 
 ## Cameras and lenses (Gear)
 

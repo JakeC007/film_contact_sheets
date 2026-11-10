@@ -251,3 +251,20 @@ def test_render_with_everything_off(tmp_path):
     opts = render.SheetOptions(style="compact", cell_width=260, show_exposure=False,
                                show_lens=False, show_iso=False, show_focal=False, show_camera=False)
     render.render_sheet(roll, tmp_path, opts)
+
+
+def test_caption_reasons_empty():
+    roll = model.Roll(medium=model.DIGITAL, camera="Canon EOS 100D", lens="Sigma 24mm")
+    roll.frames = [model.Frame("a.jpg", iso=3200, focal=24.0), model.Frame("b.jpg", iso=6400)]
+    empty = roll.caption_reasons_empty()
+    assert set(empty) == {"lens", "camera"}
+    assert "roll lens (Sigma 24mm)" in empty["lens"]
+    roll.frames[1].lens = "Samyang 14mm"
+    roll.frames[1].camera = "FUJIFILM X100V"
+    assert set(roll.caption_reasons_empty()) == set()
+    roll.frames[1].hidden = True                      # hidden frames don't count
+    assert set(roll.caption_reasons_empty()) == {"lens", "camera"}
+
+    film = model.Roll(lens="SMC Pentax 50mm f/1.4")
+    film.frames = [model.Frame("x-1.jpg"), model.Frame("x-2.jpg", lens="Pentax 28mm f/2.8")]
+    assert set(film.caption_reasons_empty()) == {"camera", "iso", "focal"}

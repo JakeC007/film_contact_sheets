@@ -491,3 +491,26 @@ def test_export_dialog_caption_toggles(app, tmp_path):
     store_options(s, o, "jpg")
     again, _ = load_options(s)
     assert again.show_lens is False and again.show_iso is False
+
+
+def test_export_greys_out_parts_that_would_not_print(app, tmp_path):
+    from contact_sheet.gui.export_dialog import ExportDialog
+    from contact_sheet.render import SheetOptions
+    roll = model.Roll(medium="digital", camera="Canon EOS 100D", lens="24mm F1.4 DG HSM | Art 015")
+    roll.frames = [model.Frame("IMG_7826.JPG", iso=6400, focal=24.0),
+                   model.Frame("IMG_7827.JPG", iso=3200, focal=24.0)]
+    dlg = ExportDialog(tmp_path, SheetOptions(), "jpg", "", digital=True,
+                       empty_parts=roll.caption_reasons_empty())
+    assert not dlg.show_lens.isEnabled() and not dlg.show_camera.isEnabled()
+    assert dlg.show_iso.isEnabled() and dlg.show_focal.isEnabled()
+    assert "nothing to show" in dlg.show_lens.toolTip()
+    assert dlg.show_lens.isChecked()                  # tick kept for rolls where it matters
+    # switching layout away from and back to overview keeps them grey
+    dlg.layout_style.setCurrentIndex(dlg.layout_style.findData("overview"))
+    dlg.layout_style.setCurrentIndex(dlg.layout_style.findData("compact"))
+    assert not dlg.show_lens.isEnabled() and dlg.show_iso.isEnabled()
+
+    roll.frames[1].lens = "Samyang 14mm"              # a second lens: now it can print
+    dlg2 = ExportDialog(tmp_path, SheetOptions(), "jpg", "", digital=True,
+                        empty_parts=roll.caption_reasons_empty())
+    assert dlg2.show_lens.isEnabled() and not dlg2.show_camera.isEnabled()

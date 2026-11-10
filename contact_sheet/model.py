@@ -123,6 +123,29 @@ class Roll:
             return f"ISO {iso}"
         return film
 
+    def caption_reasons_empty(self) -> dict[str, str]:
+        """Caption parts that would print nothing on this roll, with the reason why.
+
+        Keys: "lens", "camera", "iso", "focal". Used to grey out export toggles.
+        """
+        shown = self.visible_frames()
+        out = {}
+        if not any(f.lens and f.lens != self.lens for f in shown):
+            out["lens"] = (f"Every frame uses the roll lens ({self.lens})" if self.lens
+                           else "No frame has its own lens")
+        if not self.is_digital:
+            out["camera"] = out["iso"] = out["focal"] = (
+                "Digital sets only: film frames share the roll's ISO and camera")
+            return out
+        if not any(f.camera and f.camera != self.camera for f in shown):
+            out["camera"] = (f"Every frame is from the roll camera ({self.camera})"
+                             if self.camera else "No frame has its own camera")
+        if not any(f.iso for f in shown):
+            out["iso"] = "No frame has an ISO"
+        if not any(f.focal for f in shown):
+            out["focal"] = "No frame has a focal length"
+        return out
+
     def cameras_used(self) -> list[str]:
         """Roll camera plus any other bodies frames were shot on, in first-use order."""
         out: list[str] = []

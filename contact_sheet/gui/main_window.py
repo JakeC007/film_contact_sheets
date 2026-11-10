@@ -795,7 +795,8 @@ class MainWindow(QMainWindow):
                            write_exif=self.settings.value("write_exif", False, type=bool),
                            exif_mode=self.settings.value("exif_mode", "copy"),
                            exiftool=exiftool, allow_exif=not self.roll.is_digital,
-                           digital=self.roll.is_digital)
+                           digital=self.roll.is_digital,
+                           empty_parts=self.roll.caption_reasons_empty())
         if dlg.exec() != ExportDialog.Accepted:
             return
         opts = dlg.options()
