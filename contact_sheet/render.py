@@ -33,12 +33,31 @@ class SheetOptions:
     show_filename: bool = False
     show_notes: bool = True
     title: str = ""                  # optional, shown above the film line
+    # What goes under each frame (export toggles). Notes also covers the roll notes.
+    show_exposure: bool = True       # aperture and shutter
+    show_iso: bool = True            # digital: per-frame ISO
+    show_focal: bool = True          # digital: focal length
+    show_lens: bool = True           # lens, when it differs from the roll's
+    show_camera: bool = True         # digital: body, when it differs from the roll's
     style: str = "standard"          # "standard", "compact" (tight grid, yellow strips),
                                      # or "overview" (roll details only, no per-frame text)
     fill: bool | None = None         # crop frames to fill cells; None = style default
 
 
 ProgressFn = Callable[[int, int], None]
+
+
+def caption_for(fr: Frame, roll: Roll, opts: SheetOptions) -> str:
+    return fr.caption(roll.lens, roll.camera, exposure=opts.show_exposure, iso=opts.show_iso,
+                      focal=opts.show_focal, camera=opts.show_camera, lens=opts.show_lens)
+
+
+def label_for(fr: Frame, roll: Roll, opts: SheetOptions) -> str:
+    """Frame number; on digital sets with file names on, the file name replaces it
+    ('IMG_7826' already contains 7826)."""
+    if roll.is_digital and opts.show_filename:
+        return Path(fr.filename).stem
+    return fr.label or "?"
 
 
 # --------------------------------------------------------------------------- fonts
@@ -250,11 +269,11 @@ def _draw_caption(draw, fr: Frame, roll: Roll, opts: SheetOptions, theme, x0, y0
                   cap_font, cap_small, s):
     pad = round(4 * s)
     ty = y0 + (cap_h - cap_font.size) // 2 - round(2 * s)
-    label = fr.label or "?"
+    label = label_for(fr, roll, opts)
     draw.text((x0 + pad, ty), label, font=cap_font, fill=theme["accent"])
     x = x0 + pad + max(_text_w(draw, label, cap_font), _text_w(draw, "00A", cap_font)) + round(14 * s)
 
-    caption = fr.caption(roll.lens, roll.camera)
+    caption = caption_for(fr, roll, opts)
     remaining = x0 + cw - pad - x
     if caption:
         caption = _ellipsize(draw, caption, cap_font, remaining)
@@ -265,7 +284,7 @@ def _draw_caption(draw, fr: Frame, roll: Roll, opts: SheetOptions, theme, x0, y0
     extra = []
     if opts.show_notes and fr.note.strip():
         extra.append(fr.note.strip())
-    if opts.show_filename:
+    if opts.show_filename and not roll.is_digital:
         extra.append(fr.filename)
     if extra and remaining > 40 * s:
         text = _ellipsize(draw, "  ".join(extra), cap_small, remaining)
@@ -298,11 +317,16 @@ def compact_header_text(roll: Roll, title: str = "") -> str:
     return "    ".join(p for p in parts if p)
 
 
-def compact_caption(fr: Frame, roll: Roll, show_filename: bool) -> str:
-    parts = [fr.label or "?"]
-    if show_filename:
-        parts.append(Path(fr.filename).stem)
-    parts.append(fr.caption(roll.lens, roll.camera))
+def compact_caption(fr: Frame, roll: Roll, show_filename: bool,
+                    opts: SheetOptions | None = None) -> str:
+    opts = opts or SheetOptions(show_filename=show_filename)
+    if roll.is_digital and show_filename:
+        parts = [Path(fr.filename).stem]
+    else:
+        parts = [fr.label or "?"]
+        if show_filename:
+            parts.append(Path(fr.filename).stem)
+    parts.append(caption_for(fr, roll, opts))
     return "  ".join(p for p in parts if p)
 
 
@@ -347,7 +371,7 @@ def _render_compact(roll: Roll, folder: Path, opts: SheetOptions,
         r, c = divmod(i, cols)
         x0 = c * (cw + seam)
         y0 = header_h + r * (cell_h + seam)
-        cap = _ellipsize(draw, compact_caption(fr, roll, opts.show_filename), f, cw - 2 * pad)
+        cap = _ellipsize(draw, compact_caption(fr, roll, opts.show_filename, opts), f, cw - 2 * pad)
         strip_text(x0, y0, cap, t["text"])
         if opts.show_notes and fr.note.strip():
             used = _text_w(draw, cap, f) + pad * 3

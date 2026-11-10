@@ -8,8 +8,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                               QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                               QSpinBox, QWidget)
+                               QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+                               QPushButton, QSpinBox, QWidget)
 
 from ..exif_write import COPY_DIR
 from ..render import SheetOptions, default_output_path
@@ -43,7 +43,7 @@ class ExportDialog(QDialog):
     def __init__(self, folder: Path, opts: SheetOptions, fmt: str, title: str,
                  parent: QWidget | None = None, *, write_exif: bool = False,
                  exif_mode: str = "copy", exiftool: str | None = None,
-                 allow_exif: bool = True):
+                 allow_exif: bool = True, digital: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Export contact sheet")
         self.folder = folder
@@ -85,11 +85,32 @@ class ExportDialog(QDialog):
         form.addRow("", self.fill)
         self.layout_style.currentIndexChanged.connect(self._style_changed)
 
-        self.show_notes = QCheckBox("Show notes", checked=opts.show_notes)
-        self.show_filename = QCheckBox("Show filenames", checked=opts.show_filename)
-        self.show_filename.setEnabled(opts.style != "overview")
-        form.addRow("", self.show_notes)
-        form.addRow("", self.show_filename)
+        # What goes under each frame. Unticking only changes the exported sheet.
+        self.show_exposure = QCheckBox("Aperture && shutter", checked=opts.show_exposure)
+        self.show_iso = QCheckBox("ISO", checked=opts.show_iso)
+        self.show_focal = QCheckBox("Focal length", checked=opts.show_focal)
+        self.show_lens = QCheckBox("Lens", checked=opts.show_lens)
+        self.show_camera = QCheckBox("Camera", checked=opts.show_camera)
+        self.show_notes = QCheckBox("Notes", checked=opts.show_notes)
+        self.show_filename = QCheckBox("File names", checked=opts.show_filename)
+        self.show_lens.setToolTip("Only printed when a frame's lens differs from the roll lens")
+        self.show_camera.setToolTip("Digital sets: only printed for frames from a second body")
+        self.show_notes.setToolTip("Frame notes, and the roll notes in the header")
+        self.show_filename.setToolTip("On digital sets the file name replaces the frame number")
+        self.digital_only = (self.show_iso, self.show_focal, self.show_camera)
+        for box in self.digital_only:
+            box.setEnabled(digital)
+            if not digital:
+                box.setToolTip("Digital sets only: film frames share the roll's ISO and body")
+        self.caption_boxes = (self.show_exposure, self.show_iso, self.show_focal,
+                              self.show_lens, self.show_camera, self.show_notes,
+                              self.show_filename)
+        grid = QGridLayout()
+        for n, box in enumerate(self.caption_boxes):
+            grid.addWidget(box, n // 3, n % 3)
+        form.addRow("Under each frame", grid)
+        self._digital = digital
+        self._set_caption_boxes_enabled(opts.style != "overview")
 
         self.fmt = QComboBox()
         for name, ext in FORMATS:
@@ -138,7 +159,14 @@ class ExportDialog(QDialog):
     def _style_changed(self) -> None:
         style = self.layout_style.currentData()
         self.fill.setChecked(style in ("compact", "overview"))
-        self.show_filename.setEnabled(style != "overview")
+        self._set_caption_boxes_enabled(style != "overview")
+
+    def _set_caption_boxes_enabled(self, on: bool) -> None:
+        """Roll overview prints no per-frame text, so the boxes don't apply (notes still do)."""
+        for box in self.caption_boxes:
+            if box is self.show_notes:
+                continue
+            box.setEnabled(on and (self._digital or box not in self.digital_only))
 
     def _exif_toggled(self, on: bool) -> None:
         self.exif_mode.setEnabled(on)
@@ -163,6 +191,9 @@ class ExportDialog(QDialog):
             columns=self.columns.value(), cell_width=self.cell_width.value(),
             theme=self.theme.currentData(), vertical=self.vertical.currentData(),
             show_notes=self.show_notes.isChecked(), show_filename=self.show_filename.isChecked(),
+            show_exposure=self.show_exposure.isChecked(), show_iso=self.show_iso.isChecked(),
+            show_focal=self.show_focal.isChecked(), show_lens=self.show_lens.isChecked(),
+            show_camera=self.show_camera.isChecked(),
             title=self.title.text().strip(),
             style=self.layout_style.currentData(), fill=self.fill.isChecked(),
         )

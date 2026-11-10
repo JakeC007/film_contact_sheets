@@ -470,3 +470,24 @@ def test_about_text():
     html = about_html()
     assert "Jake Chanenson (JakeC007)" in html and "Claude Opus 5.5" in html
     assert "as is" in html and "MIT License" in html
+
+
+def test_export_dialog_caption_toggles(app, tmp_path):
+    from contact_sheet.gui.export_dialog import ExportDialog
+    from contact_sheet.render import SheetOptions
+    film = ExportDialog(tmp_path, SheetOptions(), "jpg", "")
+    assert not film.show_iso.isEnabled() and film.show_lens.isEnabled()
+    digital = ExportDialog(tmp_path, SheetOptions(), "jpg", "", digital=True)
+    assert digital.show_iso.isEnabled() and digital.show_camera.isEnabled()
+    digital.show_lens.setChecked(False)
+    digital.show_iso.setChecked(False)
+    o = digital.options()
+    assert o.show_lens is False and o.show_iso is False and o.show_exposure is True
+    digital.layout_style.setCurrentIndex(digital.layout_style.findData("overview"))
+    assert not digital.show_lens.isEnabled() and digital.show_notes.isEnabled()
+    # choices persist between exports
+    s = QSettings(str(tmp_path / "x.ini"), QSettings.IniFormat)
+    from contact_sheet.gui.export_dialog import load_options, store_options
+    store_options(s, o, "jpg")
+    again, _ = load_options(s)
+    assert again.show_lens is False and again.show_iso is False

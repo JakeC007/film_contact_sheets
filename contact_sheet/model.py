@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -32,20 +33,34 @@ class Frame:
     taken: str = ""                 # capture time, ISO 8601, from EXIF
     camera: str = ""                # body that took this frame, from EXIF
 
-    def caption(self, roll_lens: str = "", roll_camera: str = "") -> str:
-        parts = [format_aperture(self.aperture), format_shutter(self.shutter)]
-        if self.iso:
+    def caption(self, roll_lens: str = "", roll_camera: str = "", *, exposure: bool = True,
+                iso: bool = True, focal: bool = True, camera: bool = True,
+                lens: bool = True) -> str:
+        """Per-frame text; the keyword switches drop parts (export dialog toggles)."""
+        lens_text = self.lens if (lens and self.lens and self.lens != roll_lens) else ""
+        parts = []
+        if exposure:
+            parts += [format_aperture(self.aperture), format_shutter(self.shutter)]
+        if iso and self.iso:
             parts.append(f"ISO {self.iso}")
-        if self.focal:
+        # A prime's name already says "24mm"; don't print it twice on one line.
+        if focal and self.focal and not names_focal_length(lens_text, self.focal):
             parts.append(f"{self.focal:g}mm")
-        if self.camera and self.camera != roll_camera:   # second body in a digital set
+        if camera and self.camera and self.camera != roll_camera:   # second body in a set
             parts.append(self.camera)
-        if self.lens and self.lens != roll_lens:
-            parts.append(self.lens)
+        if lens_text:
+            parts.append(lens_text)
         return "  ".join(p for p in parts if p)
 
     def has_exposure(self) -> bool:
         return self.aperture is not None or self.shutter is not None
+
+
+def names_focal_length(text: str, focal: float) -> bool:
+    """True if a lens name states this focal length: '24mm F1.4' at 24, not '18-55mm' at 24."""
+    if not text:
+        return False
+    return re.search(rf"(?<![\d.\-]){re.escape(f'{focal:g}')}\s?mm", text, re.I) is not None
 
 
 FILM, DIGITAL = "film", "digital"

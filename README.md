@@ -63,6 +63,14 @@ them; only the fields you type in are applied.
   film), then labelled roll facts: film, ISO, camera, every lens used on the
   roll, location, date, who developed it, scanner, frame count and notes.
 
+**Under each frame** in the export dialog picks what the captions show:
+aperture & shutter, ISO, focal length, lens, camera, notes and file names.
+Unticking only affects the exported sheet. ISO, focal length and camera apply
+to digital sets. On digital sets, File names replaces the frame number
+(`IMG_7826` rather than `7826 IMG_7826`). A focal length is left out when the
+lens name on the same line already states it (`24mm F1.4...`). Your choices
+are remembered for the next export.
+
 ## Cameras and lenses (Gear)
 
 The Camera and Lens dropdowns list only your saved gear. To make a camera or

@@ -214,3 +214,40 @@ def test_icon_files(tmp_path):
     with Image.open(ico) as im:
         assert im.format == "ICO"
         assert (256, 256) in im.info["sizes"] and (16, 16) in im.info["sizes"]
+
+
+# ------------------------------------------------------------------ caption toggles
+
+@pytest.mark.parametrize("lens, focal, shows_focal", [
+    ("24mm F1.4 DG HSM | Art 015", 24.0, False),    # prime names its focal length
+    ("EF-S 18-55mm f/3.5-5.6", 24.0, True),         # zoom: which 24? show it
+    ("FE 24-70mm F2.8 GM", 70.0, True),             # long end of a zoom still shown
+    ("", 24.0, True),
+])
+def test_focal_length_not_repeated_by_lens_name(lens, focal, shows_focal):
+    fr = model.Frame("IMG_7827.JPG", aperture=4.0, shutter="1/4", iso=3200, focal=focal, lens=lens)
+    cap = fr.caption(roll_lens="something else")
+    assert (f"{focal:g}mm  " in cap or cap.endswith(f"{focal:g}mm")) == shows_focal, cap
+
+
+def test_caption_toggles_and_digital_filenames():
+    roll = model.Roll(medium=model.DIGITAL, camera="Canon EOS 100D", lens="Sigma 24mm")
+    fr = model.Frame("IMG_7830.JPG", label="7830", aperture=3.5, shutter="20s", iso=3200,
+                     focal=24.0, lens="Samyang 14mm", camera="FUJIFILM X100V")
+    full = render.SheetOptions()
+    assert render.caption_for(fr, roll, full) == "f/3.5  20s  ISO 3200  24mm  FUJIFILM X100V  Samyang 14mm"
+    lean = render.SheetOptions(show_lens=False, show_camera=False, show_focal=False, show_iso=False)
+    assert render.caption_for(fr, roll, lean) == "f/3.5  20s"
+    none = render.SheetOptions(show_exposure=False, show_lens=False, show_camera=False,
+                               show_focal=False, show_iso=False, show_filename=True)
+    assert render.compact_caption(fr, roll, True, none) == "IMG_7830"
+    assert render.label_for(fr, roll, none) == "IMG_7830"          # file name replaces the number
+    film = model.Roll()
+    assert render.label_for(model.Frame("x-34A.jpg", label="34A"), film, none) == "34A"
+
+
+def test_render_with_everything_off(tmp_path):
+    roll = _make_roll(tmp_path, n=3)
+    opts = render.SheetOptions(style="compact", cell_width=260, show_exposure=False,
+                               show_lens=False, show_iso=False, show_focal=False, show_camera=False)
+    render.render_sheet(roll, tmp_path, opts)
