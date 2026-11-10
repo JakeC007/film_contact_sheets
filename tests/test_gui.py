@@ -386,6 +386,11 @@ def test_digital_folder_asks_once_then_becomes_a_digital_set(app, tmp_path, monk
     assert ed.form.isRowVisible(ed.iso) and ed.iso.text() == "6400"
     assert ed.hint_box.isHidden()
 
+    # Camera / lens dropdowns list what EXIF found, not film Gear.
+    cams = [panel.camera.itemText(i) for i in range(panel.camera.count()) if panel.camera.itemText(i)]
+    assert cams == ["Canon EOS 100D"]
+    assert "Pentax MX" not in cams
+
     # Saved: reopening doesn't ask again.
     win.open_folder(scans)
     assert asked == [2]
@@ -430,15 +435,22 @@ def test_switching_type_by_hand(app, tmp_path, monkeypatch):
     win.open_folder(scans)
     assert win.roll.medium == "film" and win.roll.frames[0].aperture is None
     panel = win.roll_panel
+    panel.camera.setEditText("Pentax MX")       # set up as film first
+    app.processEvents()
+    assert win.roll.camera == "Pentax MX"
     panel.medium.setCurrentIndex(panel.medium.findData("digital"))
     panel.medium.activated.emit(panel.medium.currentIndex())
     app.processEvents()
     assert win.roll.medium == "digital" and win.roll.frames[0].iso == 6400
+    assert win.roll.camera == "Canon EOS 100D" and panel.camera.currentText() == "Canon EOS 100D"
+    film_gear = [panel.camera.itemText(i) for i in range(panel.camera.count())]
+    assert "Pentax MX" not in film_gear
     panel.medium.setCurrentIndex(panel.medium.findData("film"))
     panel.medium.activated.emit(panel.medium.currentIndex())
     app.processEvents()
     assert win.roll.medium == "film" and all(f.iso is None for f in win.roll.frames)
     assert panel.form.isRowVisible(panel.film)
+    assert "Pentax MX" in [panel.camera.itemText(i) for i in range(panel.camera.count())]
     win.close()
 
 

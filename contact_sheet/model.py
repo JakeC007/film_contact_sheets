@@ -30,13 +30,16 @@ class Frame:
     iso: int | None = None
     focal: float | None = None      # focal length in mm, from EXIF
     taken: str = ""                 # capture time, ISO 8601, from EXIF
+    camera: str = ""                # body that took this frame, from EXIF
 
-    def caption(self, roll_lens: str = "") -> str:
+    def caption(self, roll_lens: str = "", roll_camera: str = "") -> str:
         parts = [format_aperture(self.aperture), format_shutter(self.shutter)]
         if self.iso:
             parts.append(f"ISO {self.iso}")
         if self.focal:
             parts.append(f"{self.focal:g}mm")
+        if self.camera and self.camera != roll_camera:   # second body in a digital set
+            parts.append(self.camera)
         if self.lens and self.lens != roll_lens:
             parts.append(self.lens)
         return "  ".join(p for p in parts if p)
@@ -104,6 +107,15 @@ class Roll:
         if iso:
             return f"ISO {iso}"
         return film
+
+    def cameras_used(self) -> list[str]:
+        """Roll camera plus any other bodies frames were shot on, in first-use order."""
+        out: list[str] = []
+        for cam in [self.camera] + [f.camera for f in self.frames if not f.hidden]:
+            cam = (cam or "").strip()
+            if cam and cam not in out:
+                out.append(cam)
+        return out
 
     def lenses_used(self) -> list[str]:
         """Roll lens plus any per-frame overrides, in first-use order."""

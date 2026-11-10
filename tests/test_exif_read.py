@@ -248,3 +248,36 @@ def test_digital_overview_fields():
     f = dict(render.overview_fields(r))
     assert f == {"Camera": "Canon EOS 100D", "Lens": "24mm", "ISO": "3200-6400",
                  "Date": "8 Nov 2026", "Frames": "2"}
+
+
+def test_becoming_digital_replaces_film_camera_and_lens(tmp_path):
+    _jpeg(tmp_path / "IMG_0001.JPG")
+    roll = model.load_roll(tmp_path)
+    roll.camera, roll.lens = "Pentax MX", "SMC Pentax 50mm f/1.4"     # left over from film
+    roll.exif_source = model.DIGITAL
+    exif_read.fill_from_exif(roll, tmp_path, frames=roll.frames, exif_gear=True)
+    assert roll.camera == "Canon EOS 100D"
+    assert roll.lens == "24mm F1.4 DG HSM | Art 015"
+    # A later "fill blanks" keeps what you've typed since.
+    roll.camera = "My 100D"
+    exif_read.fill_from_exif(roll, tmp_path, frames=roll.frames)
+    assert roll.camera == "My 100D"
+
+
+def test_two_bodies(tmp_path):
+    _jpeg(tmp_path / "IMG_0001.JPG", taken="2026:11:08 10:00:00")
+    _jpeg(tmp_path / "IMG_0002.JPG", taken="2026:11:08 10:05:00")
+    _jpeg(tmp_path / "DSCF0003.JPG", make="FUJIFILM", model_name="X100V", lens=None,
+          taken="2026:11:08 10:10:00")
+    roll = model.load_roll(tmp_path)
+    roll.exif_source = model.DIGITAL
+    rep = exif_read.fill_from_exif(roll, tmp_path, exif_gear=True)
+    exif_read.arrange_as_digital(roll)
+    assert roll.camera == "Canon EOS 100D"
+    assert roll.cameras_used() == ["Canon EOS 100D", "FUJIFILM X100V"]
+    fuji = roll.frames[-1]
+    assert fuji.camera == "FUJIFILM X100V" and roll.frames[0].camera == ""
+    assert fuji.caption(roll.lens, roll.camera).endswith("FUJIFILM X100V")
+    assert "Shot on 2 bodies" in rep.summary()
+    from contact_sheet import render
+    assert dict(render.overview_fields(roll))["Camera"] == "Canon EOS 100D, FUJIFILM X100V"

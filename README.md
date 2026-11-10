@@ -123,8 +123,13 @@ this camera*, or by setting **Type** to Digital at the top of the roll panel.
 
 * The roll panel hides Film, Box ISO, Shot at ISO, Lab and Scanner.
 * Each frame gets its own **ISO** (editable) and focal length from EXIF, plus
-  aperture, shutter and lens. The roll gets the camera, the most-used lens and
-  the date range.
+  aperture, shutter, lens and camera body. The roll gets the most-used camera
+  and lens and the date range.
+* **Camera and Lens come from EXIF, not Gear.** When a folder becomes digital,
+  the files' camera and lens replace whatever was in those fields (e.g. a film
+  camera left over from before). Their dropdowns list only the bodies and lenses
+  found in this folder; nothing is added to Gear. Frames shot on a second body
+  or lens show it in their caption. After that, your edits are kept.
 * Frames are labelled by file number (`IMG_7826.JPG` → 7826) and ordered by
   capture time.
 * Captions read `7826  f/1.4  1/13  ISO 6400  24mm`; headers say

@@ -116,7 +116,10 @@ class RollPanel(QWidget):
         return c
 
     def choices(self, kind: str) -> list[str]:
-        """Camera / lens: only what's saved in Gear. Other fields: values from earlier rolls."""
+        """Camera / lens: Gear on film rolls; on digital sets, what this folder's EXIF says.
+        Other fields: values from earlier rolls."""
+        if self.roll and self.roll.is_digital and kind in ("camera", "lens"):
+            return self.roll.cameras_used() if kind == "camera" else self.roll.lenses_used()
         if kind == "camera":
             return self.gear.camera_names()
         if kind == "lens":
@@ -152,6 +155,7 @@ class RollPanel(QWidget):
         self.notes.setPlainText(r.notes)
         self.medium.setCurrentIndex(max(0, self.medium.findData(r.medium)))
         self._show_rows_for(r.medium)
+        self.refresh_choices()
         self._loading = False
         self.setEnabled(roll is not None)
         self._update_push()
@@ -359,7 +363,7 @@ class MainWindow(QMainWindow):
         if needs_decision(roll, found):
             decided = self.ask_exif_source(folder, found, len(roll.frames)) or ""
             roll.exif_source = decided
-        exif_report = fill_from_exif(roll, folder, found=found)
+        exif_report = fill_from_exif(roll, folder, found=found, exif_gear=decided == DIGITAL)
         if decided == DIGITAL:
             arrange_as_digital(roll)
         if exif_report.files_with_exif or decided:
@@ -426,7 +430,8 @@ class MainWindow(QMainWindow):
         roll = self.roll
         if medium == DIGITAL:
             roll.exif_source = DIGITAL
-            fill_from_exif(roll, self.folder, frames=list(roll.frames))
+            # Becoming digital: the files' own camera and lens replace any film values.
+            fill_from_exif(roll, self.folder, frames=list(roll.frames), exif_gear=True)
             arrange_as_digital(roll)
         else:
             roll.medium = FILM
@@ -435,6 +440,7 @@ class MainWindow(QMainWindow):
             for fr in roll.frames:          # digital-only data doesn't apply to film
                 fr.iso = None
                 fr.focal = None
+                fr.camera = ""
         self.roll_panel.set_roll(roll)
         self.editor.set_roll(roll, self._lens_choices())
         self._rebuild_grid()
@@ -504,7 +510,7 @@ class MainWindow(QMainWindow):
     def _refresh_item(self, i: int) -> None:
         fr = self.roll.frames[i]
         item = self.grid.item(i)
-        text = f"{fr.label or '?'}   {frame_summary(fr, self.roll.lens)}"
+        text = f"{fr.label or '?'}   {frame_summary(fr, self.roll.lens, self.roll.camera)}"
         if fr.hidden:
             text = f"{fr.label or '?'}   (hidden)"
         item.setText(text)

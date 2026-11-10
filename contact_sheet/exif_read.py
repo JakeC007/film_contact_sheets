@@ -224,11 +224,13 @@ def _unanimous(values):
 
 
 def fill_from_exif(roll: Roll, folder: str | Path, frames: list[Frame] | None = None,
-                   found: dict[str, FileExif] | None = None) -> FillReport:
+                   found: dict[str, FileExif] | None = None, exif_gear: bool = False
+                   ) -> FillReport:
     """Fill empty fields from the files' EXIF, following roll.exif_source.
 
     `frames` defaults to frames not checked before (Frame.exif_read), so reopening a
-    folder never brings back a value you deliberately cleared. Frames whose camera
+    folder never brings back a value you deliberately cleared. `exif_gear=True` (used
+    when a roll becomes digital) lets the files' camera and lens replace the roll's. Frames whose camera
     EXIF still awaits a decision are left unchecked so they're offered again.
     """
     todo = [f for f in roll.frames if not f.exif_read] if frames is None else frames
@@ -267,24 +269,34 @@ def fill_from_exif(roll: Roll, folder: str | Path, frames: list[Frame] | None = 
             report.roll_fields.append(f"camera ({cam})")
 
     if source == DIGITAL:
-        _fill_digital(roll, by_kind["camera"], report)
+        _fill_digital(roll, by_kind["camera"], report, replace_gear=exif_gear)
     return report
 
 
-def _fill_digital(roll: Roll, items: list[tuple[Frame, FileExif]], report: FillReport) -> None:
+def _fill_digital(roll: Roll, items: list[tuple[Frame, FileExif]], report: FillReport,
+                  replace_gear: bool = False) -> None:
     if not items:
         return
     roll.medium = DIGITAL
     exs = [ex for _, ex in items]
-    if not roll.camera.strip():
-        cam = _unanimous([ex.device for ex in exs])
-        if cam:
-            roll.camera = cam
-            report.roll_fields.append(f"camera ({cam})")
+    # Most-used body and lens become the roll's; frames on anything else get their own.
+    cams = Counter(ex.device for ex in exs if ex.device)
+    if cams and (replace_gear or not roll.camera.strip()):
+        roll.camera = cams.most_common(1)[0][0]
+        report.roll_fields.append(f"camera ({roll.camera})")
     lenses = Counter(ex.lens for ex in exs if ex.lens)
-    if not roll.lens.strip() and lenses:
+    if lenses and (replace_gear or not roll.lens.strip()):
         roll.lens = lenses.most_common(1)[0][0]
         report.roll_fields.append(f"lens ({roll.lens})")
+    if replace_gear:
+        for fr, ex in items:      # re-derive per-frame body / lens against the new roll values
+            if ex.device:
+                fr.camera = "" if ex.device == roll.camera else ex.device
+            if ex.lens:
+                fr.lens = "" if ex.lens == roll.lens else ex.lens
+    if len(cams) > 1:
+        report.notes.append(f"Shot on {len(cams)} bodies; frames not on {roll.camera} "
+                            "show their camera in the caption.")
     dates = [ex.taken for ex in exs if ex.taken]
     if dates and not roll.date.strip():
         roll.date = format_date_range(dates)
@@ -304,6 +316,8 @@ def _fill_frames(roll: Roll, items, report: FillReport, digital: bool) -> None:
         if not fr.lens and ex.lens and ex.lens != roll.lens:
             fr.lens = ex.lens
         if digital:
+            if not fr.camera and ex.device:
+                fr.camera = ex.device if ex.device != roll.camera else ""
             if fr.iso is None and ex.iso:
                 fr.iso = ex.iso
             if fr.focal is None and ex.focal:

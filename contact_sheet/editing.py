@@ -167,5 +167,5 @@ def next_index(roll: Roll, after: int, step: int = 1) -> int:
     return after
 
 
-def frame_summary(fr: Frame, roll_lens: str) -> str:
-    return fr.caption(roll_lens) or "?"
+def frame_summary(fr: Frame, roll_lens: str, roll_camera: str = "") -> str:
+    return fr.caption(roll_lens, roll_camera) or "?"

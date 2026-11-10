@@ -254,7 +254,7 @@ def _draw_caption(draw, fr: Frame, roll: Roll, opts: SheetOptions, theme, x0, y0
     draw.text((x0 + pad, ty), label, font=cap_font, fill=theme["accent"])
     x = x0 + pad + max(_text_w(draw, label, cap_font), _text_w(draw, "00A", cap_font)) + round(14 * s)
 
-    caption = fr.caption(roll.lens)
+    caption = fr.caption(roll.lens, roll.camera)
     remaining = x0 + cw - pad - x
     if caption:
         caption = _ellipsize(draw, caption, cap_font, remaining)
@@ -302,7 +302,7 @@ def compact_caption(fr: Frame, roll: Roll, show_filename: bool) -> str:
     parts = [fr.label or "?"]
     if show_filename:
         parts.append(Path(fr.filename).stem)
-    parts.append(fr.caption(roll.lens))
+    parts.append(fr.caption(roll.lens, roll.camera))
     return "  ".join(p for p in parts if p)
 
 
@@ -377,7 +377,7 @@ def overview_fields(roll: Roll) -> list[tuple[str, str]]:
     shown = len(roll.visible_frames())
     if roll.is_digital:
         fields = [
-            ("Camera", roll.camera), ("Lens", ", ".join(roll.lenses_used())),
+            ("Camera", ", ".join(roll.cameras_used())), ("Lens", ", ".join(roll.lenses_used())),
             ("ISO", roll.iso_range()), ("Location", roll.location), ("Date", roll.date),
             ("Frames", str(shown) if shown else ""),
         ]
