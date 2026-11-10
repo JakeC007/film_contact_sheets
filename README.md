@@ -95,21 +95,57 @@ overwriting your file. Copy this file to move your gear to another PC.
 
 ## Reading EXIF that's already there
 
-Most lab scans carry no EXIF, but digital files, some scanner output and files
-tagged by other tools do. When a folder is opened, each new file's EXIF is
-read once and used to fill **empty** fields only:
+Most lab scans carry no EXIF. When a folder is opened, each new file's EXIF is
+read once, and only **empty** fields are filled; anything typed in the app wins.
 
-* per frame: aperture, shutter speed, and lens (as an override if it differs);
-* per roll: camera, the most-used lens, ISO (only if every file agrees), and
-  the date or date range from DateTimeOriginal;
-* files whose Make/Model/Software look like a film scanner (Noritsu, Frontier,
-  Coolscan, Epson, Plustek, Pakon, Imacon, SilverFast, VueScan...) fill the
-  Scanner field instead of Camera.
+* **Film-scanner EXIF** (Noritsu, Frontier, Coolscan, Epson, Plustek, Pakon,
+  Imacon, SilverFast, VueScan...) fills the Scanner field. No question asked.
+* **EXIF this app wrote** (Software "film_contact_sheets") refills your own film
+  entries, e.g. if a folder's roll file was lost. No question asked.
+* **Camera EXIF from anywhere else** is ambiguous, because it could be the camera
+  that took the photos or one used to scan the film. The first time a folder has
+  it, the app asks once:
+  * *Film scanned with this camera*: the camera goes in Scanner; its exposure
+    EXIF (the scan settings) is ignored.
+  * *Photos taken with this camera*: the folder becomes a digital set (below).
+  * *Ignore the EXIF.*
+  The answer is saved with the roll. Closing the question without choosing asks
+  again next time.
 
-Anything already typed is never overwritten. Each file is checked only once, so
-a value you clear on purpose stays cleared when you reopen the folder. To
-re-check every file later, use Frame > Fill blanks from the files' EXIF (still
-blanks only).
+Each file is checked once, so a value you clear on purpose stays cleared when
+you reopen the folder. Frame > Fill blanks from the files' EXIF re-checks every
+file (still blanks only).
+
+## Digital sets (DSLR / mirrorless)
+
+Film is the default. A folder becomes digital by answering *Photos taken with
+this camera*, or by setting **Type** to Digital at the top of the roll panel.
+
+* The roll panel hides Film, Box ISO, Shot at ISO, Lab and Scanner.
+* Each frame gets its own **ISO** (editable) and focal length from EXIF, plus
+  aperture, shutter and lens. The roll gets the camera, the most-used lens and
+  the date range.
+* Frames are labelled by file number (`IMG_7826.JPG` → 7826) and ordered by
+  capture time.
+* Captions read `7826  f/1.4  1/13  ISO 6400  24mm`; headers say
+  `Digital, ISO 3200-6400`; the Roll overview is titled with the camera.
+* The light estimates and Gear warnings are hidden, and writing EXIF is off,
+  since the camera recorded it.
+* Switching Type back to Film restores edge-number labels and order, and drops
+  the per-frame ISO and focal length.
+
+JPEG only for now: RAW files (CR2, CR3, NEF, ARW, RAF, DNG...) are skipped, and
+the status bar says how many. A RAW file with a JPEG of the same name is
+assumed to be its pair and not counted.
+
+## File formats
+
+| | Formats |
+|---|---|
+| Opens | JPEG, TIFF (8- and 16-bit, colour or black and white), PNG |
+| Contact sheet output | JPEG, PNG, PDF |
+| Writes EXIF to | JPEG always; TIFF and PNG with ExifTool |
+| Skipped, with a note | RAW (CR2, CR3, NEF, ARW, RAF, DNG, PEF...), HEIC, WebP, AVIF, BMP, GIF |
 
 ## Writing EXIF
 

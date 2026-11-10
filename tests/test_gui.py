@@ -340,27 +340,121 @@ def test_typed_camera_is_a_one_off_and_partials_are_never_remembered(window, app
     assert lens_override == ["SMC Pentax 50mm f/1.4", "Pentax 28mm f/2.8"]
 
 
-def test_opening_a_folder_reads_existing_exif(app, tmp_path, monkeypatch):
+def _digital_folder(tmp_path):
     import piexif
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "cache"))
     scans = tmp_path / "digital"
     scans.mkdir()
-    exif = piexif.dump({"0th": {piexif.ImageIFD.Make: b"Canon", piexif.ImageIFD.Model: b"Canon EOS 100D"},
-                        "Exif": {piexif.ExifIFD.FNumber: (14, 10), piexif.ExifIFD.ExposureTime: (1, 13),
-                                 piexif.ExifIFD.ISOSpeedRatings: 6400,
-                                 piexif.ExifIFD.DateTimeOriginal: b"2026:11:08 04:43:18"}})
-    Image.new("RGB", (300, 200)).save(scans / "IMG_7826.JPG", exif=exif)
+    for name, iso, when in (("IMG_7827.JPG", 3200, b"2026:11:08 05:10:00"),
+                            ("IMG_7826.JPG", 6400, b"2026:11:08 04:43:18")):
+        exif = piexif.dump({
+            "0th": {piexif.ImageIFD.Make: b"Canon", piexif.ImageIFD.Model: b"Canon EOS 100D"},
+            "Exif": {piexif.ExifIFD.FNumber: (14, 10), piexif.ExifIFD.ExposureTime: (1, 13),
+                     piexif.ExifIFD.ISOSpeedRatings: iso, piexif.ExifIFD.FocalLength: (24, 1),
+                     piexif.ExifIFD.DateTimeOriginal: when}})
+        Image.new("RGB", (300, 200)).save(scans / name, exif=exif)
+    return scans
+
+
+def _new_window(app, tmp_path, monkeypatch, answer):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "cache"))
     win = MainWindow(settings=QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat),
                      library=Library(tmp_path / "lib.json"), gear=Gear.load(tmp_path / "gear.json"))
+    asked = []
+    win.ask_exif_source = lambda folder, found, total: (asked.append(total), answer)[1]
     win.show()
+    return win, asked
+
+
+def test_digital_folder_asks_once_then_becomes_a_digital_set(app, tmp_path, monkeypatch):
+    scans = _digital_folder(tmp_path)
+    win, asked = _new_window(app, tmp_path, monkeypatch, "digital")
     win.open_folder(scans)
     win.pool.waitForDone(5000)
     app.processEvents()
-    fr = win.roll.frames[0]
-    assert (fr.aperture, fr.shutter) == (1.4, "1/13")
-    assert win.roll_panel.camera.currentText() == "Canon EOS 100D"
-    assert win.roll_panel.box_iso.text() == "6400"
-    assert win.roll.date == "8 Nov 2026"
-    assert "Read EXIF from 1 file" in win.statusBar().currentMessage()
-    assert "f/1.4" in win.grid.item(0).text()
+    assert asked == [2]
+    r = win.roll
+    assert r.medium == "digital" and r.exif_source == "digital"
+    assert [f.label for f in r.frames] == ["7826", "7827"]           # capture order
+    assert [(f.aperture, f.shutter, f.iso, f.focal) for f in r.frames] == [
+        (1.4, "1/13", 6400, 24.0), (1.4, "1/13", 3200, 24.0)]
+    assert r.camera == "Canon EOS 100D" and r.date == "8 Nov 2026"
+    assert "ISO 6400" in win.grid.item(0).text() and "24mm" in win.grid.item(0).text()
+
+    panel, ed = win.roll_panel, win.editor
+    assert panel.medium.currentData() == "digital"
+    assert not panel.form.isRowVisible(panel.film) and not panel.form.isRowVisible(panel.scanner)
+    assert ed.form.isRowVisible(ed.iso) and ed.iso.text() == "6400"
+    assert ed.hint_box.isHidden()
+
+    # Saved: reopening doesn't ask again.
+    win.open_folder(scans)
+    assert asked == [2]
+
+    # Edit ISO on a frame.
+    win.select(1)
+    ed.iso.setText("1600")
+    QTest.keyClick(ed.iso, Qt.Key_Return)
+    assert win.roll.frames[1].iso == 1600
+
+    from contact_sheet.gui.export_dialog import ExportDialog
+    from contact_sheet.render import SheetOptions
+    dlg = ExportDialog(scans, SheetOptions(), "jpg", "", allow_exif=False)
+    assert not dlg.write_exif.isEnabled() and dlg.exif_choice()[0] is False
     win.close()
+
+
+def test_film_scanned_with_camera_answer(app, tmp_path, monkeypatch):
+    scans = _digital_folder(tmp_path)
+    win, asked = _new_window(app, tmp_path, monkeypatch, "scan")
+    win.open_folder(scans)
+    r = win.roll
+    assert r.medium == "film" and r.scanner == "Canon EOS 100D" and r.camera == ""
+    assert all(f.aperture is None for f in r.frames)
+    assert not win.editor.hint_box.isHidden() and not win.editor.form.isRowVisible(win.editor.iso)
+    win.close()
+
+
+def test_closing_the_question_asks_again_next_time(app, tmp_path, monkeypatch):
+    scans = _digital_folder(tmp_path)
+    win, asked = _new_window(app, tmp_path, monkeypatch, None)
+    win.open_folder(scans)
+    assert win.roll.exif_source == "" and all(f.aperture is None for f in win.roll.frames)
+    win.open_folder(scans)
+    assert asked == [2, 2]
+    win.close()
+
+
+def test_switching_type_by_hand(app, tmp_path, monkeypatch):
+    scans = _digital_folder(tmp_path)
+    win, asked = _new_window(app, tmp_path, monkeypatch, "ignore")
+    win.open_folder(scans)
+    assert win.roll.medium == "film" and win.roll.frames[0].aperture is None
+    panel = win.roll_panel
+    panel.medium.setCurrentIndex(panel.medium.findData("digital"))
+    panel.medium.activated.emit(panel.medium.currentIndex())
+    app.processEvents()
+    assert win.roll.medium == "digital" and win.roll.frames[0].iso == 6400
+    panel.medium.setCurrentIndex(panel.medium.findData("film"))
+    panel.medium.activated.emit(panel.medium.currentIndex())
+    app.processEvents()
+    assert win.roll.medium == "film" and all(f.iso is None for f in win.roll.frames)
+    assert panel.form.isRowVisible(panel.film)
+    win.close()
+
+
+def test_raw_only_folder_explains_why_it_is_empty(app, tmp_path, monkeypatch):
+    raws = tmp_path / "raw"
+    raws.mkdir()
+    for n in ("IMG_1.CR3", "IMG_2.CR3"):
+        (raws / n).write_bytes(b"x")
+    win, _ = _new_window(app, tmp_path, monkeypatch, None)
+    win.open_folder(raws)
+    assert "2 RAW file(s) (CR3)" in win.empty_hint.text()
+    win.close()
+
+
+def test_about_text():
+    from contact_sheet.gui.main_window import about_html
+    html = about_html()
+    assert "Jake Chanenson (JakeC007)" in html and "Claude Opus 5.5" in html
+    assert "as is" in html and "MIT License" in html

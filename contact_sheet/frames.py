@@ -11,6 +11,10 @@ import re
 from pathlib import Path
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".tif", ".tiff", ".png"}
+# Seen in camera folders but not readable here (yet); reported so they aren't silently missing.
+RAW_EXTENSIONS = {".cr2", ".cr3", ".crw", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".raf",
+                  ".rw2", ".orf", ".dng", ".pef", ".srw", ".3fr", ".iiq", ".x3f"}
+OTHER_UNSUPPORTED = {".heic", ".heif", ".webp", ".avif", ".bmp", ".gif"}
 
 # Files we write ourselves; never treat them as scans.
 OWN_OUTPUT_MARKER = "contact_sheet"
@@ -64,3 +68,33 @@ def sort_scans(paths: list[Path]) -> list[Path]:
         return [p for _, p in sorted(zip(labels, paths),
                                      key=lambda lp: (label_sort_key(lp[0]), _natural_key(lp[1].name)))]
     return sorted(paths, key=lambda p: _natural_key(p.name))
+
+
+def unsupported_files(folder: str | Path) -> dict[str, list[Path]]:
+    """RAW files with no JPEG/TIFF/PNG twin, plus other image types we can't open."""
+    folder = Path(folder)
+    files = [p for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")]
+    stems = {p.stem.lower() for p in files if p.suffix.lower() in IMAGE_EXTENSIONS}
+    raw = [p for p in files if p.suffix.lower() in RAW_EXTENSIONS and p.stem.lower() not in stems]
+    other = [p for p in files if p.suffix.lower() in OTHER_UNSUPPORTED]
+    return {"raw": sorted(raw), "other": sorted(other)}
+
+
+def unsupported_note(found: dict[str, list[Path]]) -> str:
+    def kinds(paths):
+        return ", ".join(sorted({p.suffix.upper().lstrip(".") for p in paths}))
+    parts = []
+    if found.get("raw"):
+        parts.append(f"{len(found['raw'])} RAW file(s) ({kinds(found['raw'])}) without a JPEG")
+    if found.get("other"):
+        parts.append(f"{len(found['other'])} {kinds(found['other'])} file(s)")
+    if not parts:
+        return ""
+    return "Skipped " + " and ".join(parts) + ": only JPEG, TIFF and PNG can be opened."
+
+
+def file_number_label(name: str) -> str:
+    """Digital label: the number in the filename ('IMG_7826.JPG' -> '7826', 'DSC00012' -> '12')."""
+    stem = Path(name).stem
+    m = re.search(r"(\d+)(?!.*\d)", stem)
+    return str(int(m.group(1))) if m else stem

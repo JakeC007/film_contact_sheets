@@ -42,7 +42,8 @@ def store_options(settings: QSettings, opts: SheetOptions, fmt: str) -> None:
 class ExportDialog(QDialog):
     def __init__(self, folder: Path, opts: SheetOptions, fmt: str, title: str,
                  parent: QWidget | None = None, *, write_exif: bool = False,
-                 exif_mode: str = "copy", exiftool: str | None = None):
+                 exif_mode: str = "copy", exiftool: str | None = None,
+                 allow_exif: bool = True):
         super().__init__(parent)
         self.setWindowTitle("Export contact sheet")
         self.folder = folder
@@ -122,6 +123,10 @@ class ExportDialog(QDialog):
         form.addRow("", self.exif_status)
         self.write_exif.toggled.connect(self._exif_toggled)
         self._exif_toggled(write_exif)
+        if not allow_exif:   # digital files already carry the camera's own EXIF
+            self.write_exif.setChecked(False)
+            self.write_exif.setEnabled(False)
+            self.exif_status.setText("Digital set: the files already have the camera's EXIF.")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Export")

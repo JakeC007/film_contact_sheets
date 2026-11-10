@@ -14,13 +14,15 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFile
                                QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
 from .. import __version__
-from ..exif_read import fill_from_exif
+from ..exif_read import (arrange_as_digital, arrange_as_film, camera_summary, fill_from_exif,
+                         needs_decision, survey)
+from ..frames import unsupported_files, unsupported_note
 from ..exif_write import COPY_DIR, find_exiftool
 from ..editing import apply_entry, frame_summary, move_frame, next_index, set_exposure
 from ..frames import label_sort_key
 from ..gear import Gear, check_exposure
 from ..library import Library
-from ..model import Roll, load_roll, save_roll
+from ..model import DIGITAL, FILM, Roll, load_roll, save_roll
 from ..stops import ParseError
 from .export_dialog import ExportDialog, load_options, store_options
 from .frame_editor import FrameEditor
@@ -38,9 +40,13 @@ DIM = QColor(140, 140, 140)
 class RollPanel(QWidget):
     """Left panel: things that are the same for the whole roll."""
 
-    def __init__(self, on_change, library: Library, gear: Gear | None = None, parent=None):
+    FILM_ONLY = ("film", "box_iso", "rated_iso", "lab", "scanner")
+
+    def __init__(self, on_change, library: Library, gear: Gear | None = None, parent=None,
+                 on_medium=None):
         super().__init__(parent)
         self.on_change = on_change
+        self.on_medium = on_medium     # called with "film" / "digital" when the user switches
         self.library = library
         self.gear = gear or Gear()
         self.roll: Roll | None = None
@@ -48,10 +54,14 @@ class RollPanel(QWidget):
 
         outer = QVBoxLayout(self)
         form = QFormLayout()
+        self.form = form
         outer.addLayout(form)
         outer.addStretch(1)
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
 
+        self.medium = QComboBox()
+        self.medium.addItem("Film", FILM)
+        self.medium.addItem("Digital (DSLR / mirrorless)", DIGITAL)
         self.title = QLineEdit(placeholderText="Optional, e.g. Lisbon, roll 3")
         self.film = self._combo("film")
         self.box_iso = QLineEdit(placeholderText="e.g. 400")
@@ -70,6 +80,7 @@ class RollPanel(QWidget):
 
         heading = QLabel("<b>Roll</b>")
         form.addRow(heading)
+        form.addRow("Type", self.medium)
         form.addRow("Title", self.title)
         form.addRow("Film", self.film)
         form.addRow("Box ISO", self.box_iso)
@@ -90,6 +101,7 @@ class RollPanel(QWidget):
         for c in self._combos():
             c.currentTextChanged.connect(self._changed)
         self.notes.textChanged.connect(self._changed)
+        self.medium.activated.connect(lambda *_: self._medium_picked())
         self.film.lineEdit().editingFinished.connect(self._film_finished)
         self.film.activated.connect(lambda _: self._film_finished())
         self.setEnabled(False)
@@ -138,6 +150,8 @@ class RollPanel(QWidget):
         self.location.setText(r.location)
         self.lab.setEditText(r.lab)
         self.notes.setPlainText(r.notes)
+        self.medium.setCurrentIndex(max(0, self.medium.findData(r.medium)))
+        self._show_rows_for(r.medium)
         self._loading = False
         self.setEnabled(roll is not None)
         self._update_push()
@@ -158,6 +172,24 @@ class RollPanel(QWidget):
         r.lab = self.lab.currentText().strip()
         r.notes = self.notes.toPlainText().strip()
         self._update_push()
+        self.on_change()
+
+    def _show_rows_for(self, medium: str) -> None:
+        film = medium != DIGITAL
+        for name in self.FILM_ONLY:
+            self.form.setRowVisible(getattr(self, name), film)
+
+    def _medium_picked(self) -> None:
+        if self._loading or not self.roll:
+            return
+        medium = self.medium.currentData()
+        if medium == self.roll.medium:
+            return
+        self.roll.medium = medium
+        self._show_rows_for(medium)
+        self._update_push()
+        if self.on_medium:
+            self.on_medium(medium)
         self.on_change()
 
     def _film_finished(self) -> None:
@@ -201,7 +233,8 @@ class MainWindow(QMainWindow):
         self.resize(1560, 940)
 
         # widgets
-        self.roll_panel = RollPanel(self._roll_changed, self.library, self.gear)
+        self.roll_panel = RollPanel(self._roll_changed, self.library, self.gear,
+                                    on_medium=self._medium_changed)
         roll_scroll = QScrollArea()
         roll_scroll.setWidgetResizable(True)
         roll_scroll.setWidget(self.roll_panel)
@@ -321,14 +354,22 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, f"Couldn't read {folder}:\n{exc}")
             return
         # New files get one look at their own EXIF; blanks only, never over typed values.
-        exif_report = fill_from_exif(roll, folder)
-        if exif_report.files_with_exif:
-            # Save now, so a value you later clear on purpose isn't refilled next time.
-            # Folders with no EXIF are left untouched (cheap to re-check on each open).
+        found = survey(roll, folder)
+        decided = ""
+        if needs_decision(roll, found):
+            decided = self.ask_exif_source(folder, found, len(roll.frames)) or ""
+            roll.exif_source = decided
+        exif_report = fill_from_exif(roll, folder, found=found)
+        if decided == DIGITAL:
+            arrange_as_digital(roll)
+        if exif_report.files_with_exif or decided:
+            # Save now, so a value you later clear on purpose isn't refilled next time,
+            # and the question isn't asked again. Folders with no EXIF are left untouched.
             try:
                 save_roll(roll, folder)
             except OSError:
                 pass
+        skipped = unsupported_note(unsupported_files(folder))
         self.folder, self.roll = folder, roll
         self.settings.setValue("last_folder", str(folder))
         self.generation += 1
@@ -343,25 +384,82 @@ class MainWindow(QMainWindow):
         self._rebuild_grid()
         self.empty_hint.setVisible(not roll.frames)
         if not roll.frames:
-            self.empty_hint.setText("No JPEG, TIFF or PNG scans in this folder.")
+            self.empty_hint.setText("No JPEG, TIFF or PNG files in this folder."
+                                    + (f"\n{skipped}" if skipped else ""))
             self.empty_hint.adjustSize()
         for fr in roll.frames:
             self.pool.start(ImageJob(self.generation, folder / fr.filename, None, self.image_signals))
         if roll.frames:
             first = next((i for i, f in enumerate(roll.frames) if not f.has_exposure() and not f.hidden), 0)
             self.select(first)
-        message = f"{len(roll.frames)} scans in {folder}"
+        message = f"{len(roll.frames)} {'photos' if roll.is_digital else 'scans'} in {folder}"
         if exif_report.summary():
             message += ". " + exif_report.summary()
-        self.statusBar().showMessage(message, 15000)
+        if skipped:
+            message += " " + skipped
+        self.statusBar().showMessage(message, 20000)
+
+    def ask_exif_source(self, folder: Path, found: dict, total: int) -> str | None:
+        """Once per folder: what does the camera EXIF in these files mean?"""
+        cams = [ex for ex in found.values() if ex.is_camera]
+        box = QMessageBox(self)
+        box.setWindowTitle(APP_NAME)
+        box.setIcon(QMessageBox.Question)
+        box.setText(f"{len(cams)} of {total} files in “{folder.name}” have camera details "
+                    f"({camera_summary(found)}).\n\nWhat are they?")
+        box.setInformativeText(
+            "Film scanned with this camera: the camera goes in Scanner and its exposure "
+            "EXIF is ignored.\n"
+            "Photos taken with this camera: the folder becomes a digital set, with "
+            "exposure, ISO, lens and date read from each file.\n\n"
+            "You can change this later with the Type field (Film / Digital).")
+        scan_btn = box.addButton("Film scanned with this camera", QMessageBox.AcceptRole)
+        digital_btn = box.addButton("Photos taken with this camera", QMessageBox.AcceptRole)
+        ignore_btn = box.addButton("Ignore the EXIF", QMessageBox.RejectRole)
+        box.setDefaultButton(scan_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        return {scan_btn: "scan", digital_btn: DIGITAL, ignore_btn: "ignore"}.get(clicked)
+
+    def _medium_changed(self, medium: str) -> None:
+        """User switched Type between Film and Digital."""
+        roll = self.roll
+        if medium == DIGITAL:
+            roll.exif_source = DIGITAL
+            fill_from_exif(roll, self.folder, frames=list(roll.frames))
+            arrange_as_digital(roll)
+        else:
+            roll.medium = FILM
+            roll.exif_source = ""           # ask again if camera EXIF turns up later
+            arrange_as_film(roll)
+            for fr in roll.frames:          # digital-only data doesn't apply to film
+                fr.iso = None
+                fr.focal = None
+        self.roll_panel.set_roll(roll)
+        self.editor.set_roll(roll, self._lens_choices())
+        self._rebuild_grid()
+        if roll.frames:
+            self.select(0)
+        self._schedule_save()
 
     def fill_blanks_from_exif(self) -> None:
         """Re-check every file's EXIF and fill any field that's still empty."""
         if not self.roll or not self.folder:
             return
-        report = fill_from_exif(self.roll, self.folder, frames=list(self.roll.frames))
+        found = survey(self.roll, self.folder, list(self.roll.frames))
+        if needs_decision(self.roll, found):
+            choice = self.ask_exif_source(self.folder, found, len(self.roll.frames))
+            if not choice:
+                return
+            self.roll.exif_source = choice
+        was_digital = self.roll.is_digital
+        report = fill_from_exif(self.roll, self.folder, frames=list(self.roll.frames), found=found)
+        if self.roll.is_digital and not was_digital:
+            arrange_as_digital(self.roll)
+            self._rebuild_grid()
+            self.editor.set_roll(self.roll, self._lens_choices())
         if not report.files_with_exif:
-            QMessageBox.information(self, APP_NAME, "None of these files has exposure EXIF.")
+            QMessageBox.information(self, APP_NAME, "None of these files has EXIF to read.")
             return
         self.roll_panel.set_roll(self.roll)
         for i in range(len(self.roll.frames)):
@@ -369,9 +467,13 @@ class MainWindow(QMainWindow):
         self.editor.reload()
         self.editor.refresh_hints()
         self._schedule_save()
-        filled = report.summary()
+        filled = report.summary() or f"Read EXIF from {report.files_with_exif} file(s)."
         if not report.frames_filled and not report.roll_fields:
-            filled += " Nothing was empty, so nothing changed."
+            filled += (" Nothing was empty, so nothing changed." if self.roll.exif_source
+                       not in ("scan", "ignore") else
+                       f" Camera EXIF is set to be ignored for exposures "
+                       f"({'scan camera' if self.roll.exif_source == 'scan' else 'ignore'}); "
+                       "switch Type to Digital to use it.")
         QMessageBox.information(self, APP_NAME, filled)
 
     def dragEnterEvent(self, e) -> None:
@@ -535,6 +637,9 @@ class MainWindow(QMainWindow):
 
     def _warn_if_impossible(self, fr) -> None:
         """Saved anyway (you know what you shot), but flag values the gear can't set."""
+        if self.roll.is_digital:     # digital values come from the camera itself
+            self.gear_warning.setText("")
+            return
         lens = self.gear.lens(fr.lens or self.roll.lens)
         warning = check_exposure(self.gear.camera(self.roll.camera), lens, fr.aperture, fr.shutter)
         # A permanent status-bar label, so the "Saved" flash doesn't wipe it out.
@@ -683,7 +788,7 @@ class MainWindow(QMainWindow):
         dlg = ExportDialog(self.folder, opts, fmt, self.roll.title, self,
                            write_exif=self.settings.value("write_exif", False, type=bool),
                            exif_mode=self.settings.value("exif_mode", "copy"),
-                           exiftool=exiftool)
+                           exiftool=exiftool, allow_exif=not self.roll.is_digital)
         if dlg.exec() != ExportDialog.Accepted:
             return
         opts = dlg.options()
@@ -718,6 +823,10 @@ class MainWindow(QMainWindow):
 
     def write_exif_only(self) -> None:
         if not self.roll or not self.folder:
+            return
+        if self.roll.is_digital:
+            QMessageBox.information(self, APP_NAME, "This is a digital set: the files already "
+                                    "have the camera's own EXIF, so nothing is written.")
             return
         box = QMessageBox(self)
         box.setWindowTitle(APP_NAME)
@@ -817,8 +926,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ misc
 
     def about(self) -> None:
-        QMessageBox.about(self, APP_NAME, f"{APP_NAME} {__version__}\n\n"
-                          "Builds contact sheets from film scans with exposure details.")
+        QMessageBox.about(self, f"About {APP_NAME}", about_html())
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -831,6 +939,19 @@ class MainWindow(QMainWindow):
         self.pool.clear()       # drop queued thumbnail jobs
         self.pool.waitForDone(5000)
         super().closeEvent(e)
+
+
+def about_html() -> str:
+    return (
+        f"<h3>{APP_NAME} {__version__}</h3>"
+        "<p>Builds contact sheets from film scans, with the exposure details for each frame.</p>"
+        "<p>Written by Jake Chanenson, with help from Claude Opus 5.5 (Anthropic).</p>"
+        "<p>Released under the MIT License. This software is provided &quot;as is&quot;, "
+        "without warranty of any kind, express or implied, including fitness for a "
+        "particular purpose. The author is not liable for any damages or loss arising "
+        "from its use, including loss of or damage to your photo files.</p>"
+        "<p>Copyright &copy; 2026 Jake Chanenson (JakeC007)</p>"
+    )
 
 
 def _install_crash_log() -> None:

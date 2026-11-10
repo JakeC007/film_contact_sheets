@@ -50,6 +50,16 @@ class Entry:
     lens: str | None = None
     note: str | None = None
     label: str | None = None
+    iso: str | None = None      # digital rolls only; None = field not shown
+
+
+def parse_iso(text: str | None) -> int | None:
+    t = (text or "").strip().lower().removeprefix("iso").strip()
+    if t in ("", "?"):
+        return None
+    if not t.isdigit() or not 1 <= int(t) <= 409600:
+        raise ParseError(f"Not an ISO: {text!r}")
+    return int(t)
 
 
 def apply_entry(roll: Roll, indices: list[int], entry: Entry) -> list[int]:
@@ -62,6 +72,8 @@ def apply_entry(roll: Roll, indices: list[int], entry: Entry) -> list[int]:
     sh_text = entry.shutter.strip()
     ap_value = parse_aperture(ap_text)   # validates; "?" and "" both give None
     sh_value = parse_shutter(sh_text)
+    iso_text = (entry.iso or "").strip()
+    iso_value = parse_iso(iso_text) if entry.iso is not None else None
 
     if entry.label is not None and not multi:
         label = entry.label.strip()
@@ -91,6 +103,9 @@ def apply_entry(roll: Roll, indices: list[int], entry: Entry) -> list[int]:
                 fr.lens = _normalise_lens(sug.lens, roll)
             else:
                 fr.lens = _normalise_lens(lens, roll)
+
+        if entry.iso is not None and (not multi or iso_text):
+            fr.iso = iso_value
 
         if entry.note is not None and (not multi or entry.note.strip()):
             fr.note = entry.note.strip()

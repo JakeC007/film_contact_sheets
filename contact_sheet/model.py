@@ -26,9 +26,17 @@ class Frame:
     hidden: bool = False            # leave off the sheet (blank / misfire)
     rotation: int = 0               # extra clockwise rotation, multiple of 90
     exif_read: bool = False         # the file's own EXIF has been checked once already
+    # Digital rolls only (film frames share the roll's ISO and have no capture time):
+    iso: int | None = None
+    focal: float | None = None      # focal length in mm, from EXIF
+    taken: str = ""                 # capture time, ISO 8601, from EXIF
 
     def caption(self, roll_lens: str = "") -> str:
         parts = [format_aperture(self.aperture), format_shutter(self.shutter)]
+        if self.iso:
+            parts.append(f"ISO {self.iso}")
+        if self.focal:
+            parts.append(f"{self.focal:g}mm")
         if self.lens and self.lens != roll_lens:
             parts.append(self.lens)
         return "  ".join(p for p in parts if p)
@@ -37,9 +45,19 @@ class Frame:
         return self.aperture is not None or self.shutter is not None
 
 
+FILM, DIGITAL = "film", "digital"
+
+# What camera EXIF in a folder means, decided once per roll by the user:
+#   ""        not asked yet          "digital"  photos taken with that camera
+#   "scan"    film scanned with it   "ignore"   leave the EXIF alone
+EXIF_SOURCES = ("", "scan", "digital", "ignore")
+
+
 @dataclass
 class Roll:
     title: str = ""
+    medium: str = FILM              # "film" or "digital"
+    exif_source: str = ""
     film: str = ""
     box_iso: int | None = None
     rated_iso: int | None = None
@@ -55,11 +73,25 @@ class Roll:
     # ----------------------------------------------------------------- display
 
     @property
+    def is_digital(self) -> bool:
+        return self.medium == DIGITAL
+
+    @property
     def effective_iso(self) -> int | None:
         return self.rated_iso or self.box_iso
 
+    def iso_range(self) -> str:
+        """Digital: '6400' or '3200-6400' from the visible frames' own ISO."""
+        isos = sorted({f.iso for f in self.visible_frames() if f.iso})
+        if not isos:
+            return str(self.effective_iso or "")
+        return str(isos[0]) if len(isos) == 1 else f"{isos[0]}-{isos[-1]}"
+
     def film_line(self) -> str:
-        """e.g. 'Kodak Portra 400 @ ISO 800 (+1)' or 'Kodak Gold 200, ISO 200'."""
+        """e.g. 'Kodak Portra 400 @ ISO 800 (+1)', 'Kodak Gold 200, ISO 200', 'Digital, ISO 3200-6400'."""
+        if self.is_digital:
+            iso = self.iso_range()
+            return f"Digital, ISO {iso}" if iso else "Digital"
         film = self.film.strip()
         box, rated = self.box_iso, self.rated_iso
         if rated and box and rated != box:

@@ -374,6 +374,14 @@ def _render_compact(roll: Roll, folder: Path, opts: SheetOptions,
 # frames with no captions at all.
 
 def overview_fields(roll: Roll) -> list[tuple[str, str]]:
+    shown = len(roll.visible_frames())
+    if roll.is_digital:
+        fields = [
+            ("Camera", roll.camera), ("Lens", ", ".join(roll.lenses_used())),
+            ("ISO", roll.iso_range()), ("Location", roll.location), ("Date", roll.date),
+            ("Frames", str(shown) if shown else ""),
+        ]
+        return [(k, v.strip()) for k, v in fields if v and v.strip()]
     box, rated = roll.box_iso, roll.rated_iso
     if rated and box and rated != box:
         from .stops import push_pull_label
@@ -381,7 +389,6 @@ def overview_fields(roll: Roll) -> list[tuple[str, str]]:
         iso = f"{rated}  (box {box}{', ' + push if push else ''})"
     else:
         iso = str(box or rated or "")
-    shown = len(roll.visible_frames())
     fields = [
         ("Film", roll.film), ("ISO", iso), ("Camera", roll.camera),
         ("Lens", ", ".join(roll.lenses_used())), ("Location", roll.location),
@@ -415,6 +422,9 @@ def _render_overview(roll: Roll, folder: Path, opts: SheetOptions,
     scratch = ImageDraw.Draw(Image.new("RGB", (10, 10)))
     if opts.title.strip():
         title, subtitle = opts.title.strip(), roll.film_line()
+    elif roll.is_digital:
+        title = roll.camera.strip() or "Digital"
+        subtitle = "  ·  ".join(p for p in (roll.location.strip(), roll.date.strip()) if p)
     else:
         title = roll.film_line() or "Untitled roll"
         subtitle = "  ·  ".join(p for p in (roll.location.strip(), roll.date.strip()) if p)

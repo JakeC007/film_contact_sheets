@@ -119,6 +119,11 @@ class FrameEditor(QWidget):
         form.addRow("Frame #", self.label_edit)
         form.addRow("&Aperture", self.aperture)
         form.addRow("&Shutter", self.shutter)
+        self.iso = QLineEdit()
+        self.iso.setMaximumWidth(120)
+        self.iso.setPlaceholderText("from EXIF")
+        form.addRow("&ISO", self.iso)             # digital rolls only
+        self.form = form
         form.addRow("&Lens", self.lens)
         form.addRow("&Note", self.note)
         row = QHBoxLayout()
@@ -144,6 +149,7 @@ class FrameEditor(QWidget):
         layout.addWidget(self.recent_box)
 
         hint_box = QGroupBox("Don't remember? Estimate from the light (fills the fields)")
+        self.hint_box = hint_box
         hv = QVBoxLayout(hint_box)
         self.condition = QComboBox()
         for name, ev in CONDITIONS:
@@ -166,7 +172,8 @@ class FrameEditor(QWidget):
         layout.addWidget(help_label)
 
         self._filter = _EnterFilter(self)
-        for w in (self.label_edit, self.aperture, self.shutter, self.lens.lineEdit(), self.note):
+        for w in (self.label_edit, self.aperture, self.shutter, self.iso, self.lens.lineEdit(),
+                  self.note):
             w.installEventFilter(self._filter)
 
         self.setEnabled(False)
@@ -197,7 +204,10 @@ class FrameEditor(QWidget):
         """Fill fields from the model for the current selection."""
         roll, idx = self.roll, self.indices
         self.error.clear()
-        for w in (self.label_edit, self.aperture, self.shutter, self.note):
+        digital = bool(roll and roll.is_digital)
+        self.form.setRowVisible(self.iso, digital)
+        self.hint_box.setVisible(not digital)    # the camera recorded it; no estimating
+        for w in (self.label_edit, self.aperture, self.shutter, self.iso, self.note):
             w.clear()
             w.setPlaceholderText("")
         self.lens.setEditText("")
@@ -216,6 +226,15 @@ class FrameEditor(QWidget):
             self.label_edit.setEnabled(True)
             self.label_edit.setText(fr.label)
             self.note.setText(fr.note)
+            self.iso.setText(str(fr.iso or ""))
+            self.iso.setPlaceholderText("unknown")
+            if digital:
+                extra = [f"{fr.focal:g}mm" if fr.focal else "",
+                         fr.taken.replace("T", " ")[:16] if fr.taken else ""]
+                extra = " &nbsp; ".join(e for e in extra if e)
+                if extra:
+                    self.heading.setText(self.heading.text() +
+                                         f" &nbsp; <span style='color:#888'>{extra}</span>")
             self.hidden.setChecked(fr.hidden)
             if fr.has_exposure():
                 self.aperture.setText(_strip_f(format_aperture(fr.aperture)))
@@ -238,6 +257,7 @@ class FrameEditor(QWidget):
             self.aperture.setPlaceholderText(_strip_f(format_aperture(aps.pop())) if len(aps) == 1 else "mixed")
             self.shutter.setPlaceholderText((shs.pop() or "") if len(shs) == 1 else "mixed")
             self.lens.lineEdit().setPlaceholderText("unchanged")
+            self.iso.setPlaceholderText("unchanged")
             self.note.setPlaceholderText("unchanged")
         self._rebuild_recent()
         self._rebuild_hints()
@@ -261,6 +281,7 @@ class FrameEditor(QWidget):
             lens=self.lens.currentText(),
             note=self.note.text(),
             label=self.label_edit.text() if single else None,
+            iso=self.iso.text() if (self.roll and self.roll.is_digital) else None,
         )
 
     def show_error(self, message: str) -> None:
