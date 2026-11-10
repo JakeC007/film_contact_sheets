@@ -317,20 +317,50 @@ def test_typed_camera_is_a_one_off_and_partials_are_never_remembered(window, app
     # Typing letter by letter, with autosaves in between, used to save "P", "Pe", ...
     for partial in ("P", "Pe", "Pen"):
         panel.camera.setEditText(partial)
-        panel.location.setEditText(partial)
+        panel.lab.setEditText(partial)
         win.save()
     assert win.roll.camera == "Pen"                      # kept on this roll
     assert model.load_roll(scans).camera == "Pen"        # and in its JSON
     assert items(panel.camera) == ["Pentax MX"]          # dropdown is Gear only
-    assert "Pen" not in win.library.values("location")   # nothing remembered mid-typing
+    assert "Pen" not in win.library.values("lab")   # nothing remembered mid-typing
 
     # Finished values are remembered when the roll is put away (folder switch / close / export).
-    panel.location.setEditText("Edinburgh")
+    panel.lab.setEditText("The Darkroom")
+    panel.location.setText("Edinburgh")
     panel.lens.setEditText("Some borrowed 35mm")
     win.remember_roll()
-    assert win.library.values("location") == ["Edinburgh"]
+    assert win.library.values("lab") == ["The Darkroom"]
+    assert win.roll.location == "Edinburgh"
+    assert not hasattr(panel.location, "itemText")      # plain text box, no dropdown
+    assert "location" not in win.library.items
     assert "Some borrowed 35mm" not in items(panel.lens)
     assert items(panel.lens) == ["SMC Pentax 50mm f/1.4", "Pentax 28mm f/2.8"]
     lens_override = [win.editor.lens.itemText(i) for i in range(win.editor.lens.count())
                      if win.editor.lens.itemText(i)]
     assert lens_override == ["SMC Pentax 50mm f/1.4", "Pentax 28mm f/2.8"]
+
+
+def test_opening_a_folder_reads_existing_exif(app, tmp_path, monkeypatch):
+    import piexif
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "cache"))
+    scans = tmp_path / "digital"
+    scans.mkdir()
+    exif = piexif.dump({"0th": {piexif.ImageIFD.Make: b"Canon", piexif.ImageIFD.Model: b"Canon EOS 100D"},
+                        "Exif": {piexif.ExifIFD.FNumber: (14, 10), piexif.ExifIFD.ExposureTime: (1, 13),
+                                 piexif.ExifIFD.ISOSpeedRatings: 6400,
+                                 piexif.ExifIFD.DateTimeOriginal: b"2026:11:08 04:43:18"}})
+    Image.new("RGB", (300, 200)).save(scans / "IMG_7826.JPG", exif=exif)
+    win = MainWindow(settings=QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat),
+                     library=Library(tmp_path / "lib.json"), gear=Gear.load(tmp_path / "gear.json"))
+    win.show()
+    win.open_folder(scans)
+    win.pool.waitForDone(5000)
+    app.processEvents()
+    fr = win.roll.frames[0]
+    assert (fr.aperture, fr.shutter) == (1.4, "1/13")
+    assert win.roll_panel.camera.currentText() == "Canon EOS 100D"
+    assert win.roll_panel.box_iso.text() == "6400"
+    assert win.roll.date == "8 Nov 2026"
+    assert "Read EXIF from 1 file" in win.statusBar().currentMessage()
+    assert "f/1.4" in win.grid.item(0).text()
+    win.close()

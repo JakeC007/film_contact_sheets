@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFile
                                QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
 from .. import __version__
+from ..exif_read import fill_from_exif
 from ..exif_write import COPY_DIR, find_exiftool
 from ..editing import apply_entry, frame_summary, move_frame, next_index, set_exposure
 from ..frames import label_sort_key
@@ -61,7 +62,7 @@ class RollPanel(QWidget):
         self.lens = self._combo("lens")
         self.scanner = self._combo("scanner")
         self.date = QLineEdit(placeholderText="e.g. 3-12 Oct 2026")
-        self.location = self._combo("location")
+        self.location = QLineEdit(placeholderText="e.g. Lisbon")   # plain text, not remembered
         self.lab = self._combo("lab")
         self.notes = QPlainTextEdit()
         self.notes.setPlaceholderText("Roll notes (printed in the header)")
@@ -84,7 +85,7 @@ class RollPanel(QWidget):
         self.push_label.setStyleSheet("color:#888;")
         form.addRow("", self.push_label)
 
-        for w in (self.title, self.box_iso, self.rated_iso, self.date):
+        for w in (self.title, self.box_iso, self.rated_iso, self.date, self.location):
             w.textChanged.connect(self._changed)
         for c in self._combos():
             c.currentTextChanged.connect(self._changed)
@@ -111,7 +112,7 @@ class RollPanel(QWidget):
         return self.library.values(kind)
 
     def _combos(self) -> list[QComboBox]:
-        return [self.film, self.camera, self.lens, self.scanner, self.location, self.lab]
+        return [self.film, self.camera, self.lens, self.scanner, self.lab]
 
     def refresh_choices(self) -> None:
         for c in self._combos():
@@ -134,7 +135,7 @@ class RollPanel(QWidget):
         self.lens.setEditText(r.lens)
         self.scanner.setEditText(r.scanner)
         self.date.setText(r.date)
-        self.location.setEditText(r.location)
+        self.location.setText(r.location)
         self.lab.setEditText(r.lab)
         self.notes.setPlainText(r.notes)
         self._loading = False
@@ -153,7 +154,7 @@ class RollPanel(QWidget):
         r.lens = self.lens.currentText().strip()
         r.scanner = self.scanner.currentText().strip()
         r.date = self.date.text().strip()
-        r.location = self.location.currentText().strip()
+        r.location = self.location.text().strip()
         r.lab = self.lab.currentText().strip()
         r.notes = self.notes.toPlainText().strip()
         self._update_push()
@@ -284,6 +285,7 @@ class MainWindow(QMainWindow):
         act(m, "Move earlier", lambda: self.move_selected(-1), "Alt+Left")
         act(m, "Move later", lambda: self.move_selected(1), "Alt+Right")
         act(m, "Sort by frame number", self.sort_by_label)
+        act(m, "Fill blanks from the files' EXIF", self.fill_blanks_from_exif)
         m.addSeparator()
         act(m, "Clear exposure on selected", self.clear_selected)
         act(m, "Copy previous frame to selected", self.copy_previous, "Ctrl+D")
@@ -318,6 +320,15 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, APP_NAME, f"Couldn't read {folder}:\n{exc}")
             return
+        # New files get one look at their own EXIF; blanks only, never over typed values.
+        exif_report = fill_from_exif(roll, folder)
+        if exif_report.files_with_exif:
+            # Save now, so a value you later clear on purpose isn't refilled next time.
+            # Folders with no EXIF are left untouched (cheap to re-check on each open).
+            try:
+                save_roll(roll, folder)
+            except OSError:
+                pass
         self.folder, self.roll = folder, roll
         self.settings.setValue("last_folder", str(folder))
         self.generation += 1
@@ -339,7 +350,29 @@ class MainWindow(QMainWindow):
         if roll.frames:
             first = next((i for i, f in enumerate(roll.frames) if not f.has_exposure() and not f.hidden), 0)
             self.select(first)
-        self.statusBar().showMessage(f"{len(roll.frames)} scans in {folder}")
+        message = f"{len(roll.frames)} scans in {folder}"
+        if exif_report.summary():
+            message += ". " + exif_report.summary()
+        self.statusBar().showMessage(message, 15000)
+
+    def fill_blanks_from_exif(self) -> None:
+        """Re-check every file's EXIF and fill any field that's still empty."""
+        if not self.roll or not self.folder:
+            return
+        report = fill_from_exif(self.roll, self.folder, frames=list(self.roll.frames))
+        if not report.files_with_exif:
+            QMessageBox.information(self, APP_NAME, "None of these files has exposure EXIF.")
+            return
+        self.roll_panel.set_roll(self.roll)
+        for i in range(len(self.roll.frames)):
+            self._refresh_item(i)
+        self.editor.reload()
+        self.editor.refresh_hints()
+        self._schedule_save()
+        filled = report.summary()
+        if not report.frames_filled and not report.roll_fields:
+            filled += " Nothing was empty, so nothing changed."
+        QMessageBox.information(self, APP_NAME, filled)
 
     def dragEnterEvent(self, e) -> None:
         if e.mimeData().hasUrls():

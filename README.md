@@ -26,10 +26,10 @@ pytest
 
 1. Open a folder of scans (Ctrl+O, or drag the folder onto the window).
 2. Fill the roll panel once: film, ISO, camera, lens, scanner. Film names like
-   "Portra 400" fill in the box ISO. Film, scanner, location and lab are
+   "Portra 400" fill in the box ISO. Film, scanner and lab are
    remembered for next time (when you export, switch folder or close the app).
    Camera and lens dropdowns only list what's saved in Gear; anything else you
-   type there is a one-off for that roll.
+   type there is a one-off for that roll. Location is a plain text box.
 3. Enter exposures frame by frame. A new frame shows the previous frame's
    values in grey; press Enter to accept them, or type over them.
 4. Ctrl+E to export the sheet.
@@ -93,7 +93,25 @@ built-in entries back if you deleted them.
 If the file has a typo the app says so and uses the built-in list without
 overwriting your file. Copy this file to move your gear to another PC.
 
-## EXIF
+## Reading EXIF that's already there
+
+Most lab scans carry no EXIF, but digital files, some scanner output and files
+tagged by other tools do. When a folder is opened, each new file's EXIF is
+read once and used to fill **empty** fields only:
+
+* per frame: aperture, shutter speed, and lens (as an override if it differs);
+* per roll: camera, the most-used lens, ISO (only if every file agrees), and
+  the date or date range from DateTimeOriginal;
+* files whose Make/Model/Software look like a film scanner (Noritsu, Frontier,
+  Coolscan, Epson, Plustek, Pakon, Imacon, SilverFast, VueScan...) fill the
+  Scanner field instead of Camera.
+
+Anything already typed is never overwritten. Each file is checked only once, so
+a value you clear on purpose stays cleared when you reopen the folder. To
+re-check every file later, use Frame > Fill blanks from the files' EXIF (still
+blanks only).
+
+## Writing EXIF
 
 Tick "Also write exposure details into the scans' EXIF" in the export dialog,
 or use File > Write EXIF to scans. Written tags: FNumber, ExposureTime, ISO

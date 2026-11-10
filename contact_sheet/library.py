@@ -1,7 +1,8 @@
-"""Remembered film stocks, scanners, places and labs across rolls.
+"""Remembered film stocks, scanners and labs across rolls.
 
 Cameras and lenses are not remembered here: only what's saved in Gear shows in
 those dropdowns, so a one-off typed into the roll never becomes a choice.
+Location is a plain per-roll text field and isn't remembered either.
 
 Stored in %APPDATA%\\film_contact_sheets\\library.json (or ~/.config elsewhere).
 """
@@ -15,7 +16,8 @@ from pathlib import Path
 
 from .model import Roll
 
-KINDS = ("film", "scanner", "location", "lab")   # older files' "camera"/"lens" are dropped
+# Older files also had "camera", "lens" and "location"; those are dropped on the next save.
+KINDS = ("film", "scanner", "lab")
 MAX_ITEMS = 60
 COMMON_ISOS = {25, 32, 50, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800,
                1000, 1250, 1600, 3200, 6400}

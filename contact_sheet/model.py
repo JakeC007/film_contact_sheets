@@ -25,6 +25,7 @@ class Frame:
     note: str = ""
     hidden: bool = False            # leave off the sheet (blank / misfire)
     rotation: int = 0               # extra clockwise rotation, multiple of 90
+    exif_read: bool = False         # the file's own EXIF has been checked once already
 
     def caption(self, roll_lens: str = "") -> str:
         parts = [format_aperture(self.aperture), format_shutter(self.shutter)]

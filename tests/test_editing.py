@@ -136,10 +136,10 @@ def test_library_roundtrip_ignores_camera_and_lens(tmp_path):
     lib.save()
     again = library.Library(tmp_path / "lib.json")
     assert again.values("film")[0] == "Kodak Gold 200"
-    assert again.values("location") == ["Scotland"]
+    assert again.values("scanner") == ["Fujifilm"]
     assert again.box_iso_for("Kodak Gold 200") == 200
     saved = json.loads((tmp_path / "lib.json").read_text())
-    assert "camera" not in saved and "lens" not in saved
+    assert "camera" not in saved and "lens" not in saved and "location" not in saved
 
 
 def test_old_library_with_partial_camera_names_is_cleaned(tmp_path):
@@ -157,4 +157,4 @@ def test_old_library_with_partial_camera_names_is_cleaned(tmp_path):
 def test_library_survives_corrupt_file(tmp_path):
     p = tmp_path / "lib.json"
     p.write_text("{not json")
-    assert library.Library(p).values("location") == []
+    assert library.Library(p).values("lab") == []
