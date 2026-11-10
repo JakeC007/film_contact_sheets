@@ -63,8 +63,8 @@ them; only the fields you type in are applied.
 ## Cameras and lenses (Gear)
 
 The Camera and Lens dropdowns list your saved gear first, then anything typed
-on earlier rolls. A Pentax MX (1/1000 to 1 s, B) with SMC Pentax-M 50mm f/1.7,
-50mm f/1.4 and 28mm f/2.8 lenses is set up on first run.
+on earlier rolls. A Pentax MX (1/1000 to 1 s, B) with an SMC Pentax 50mm f/1.4
+and a Pentax 28mm f/2.8 (both to f/22) is set up on first run.
 
 The gear's limits do two things:
 

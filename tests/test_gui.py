@@ -221,19 +221,36 @@ def test_gear_dropdowns_and_limited_hints(window, app):
     panel = win.roll_panel
     cams = [panel.camera.itemText(i) for i in range(panel.camera.count())]
     lenses = [panel.lens.itemText(i) for i in range(panel.lens.count())]
-    assert "Pentax MX" in cams and "SMC Pentax-M 50mm f/1.7" in lenses
+    assert "Pentax MX" in cams
+    assert "SMC Pentax 50mm f/1.4" in lenses and "Pentax 28mm f/2.8" in lenses
 
     panel.film.setEditText("Kodak Portra 400")
     panel.box_iso.setText("400")
     panel.rated_iso.setText("800")
     panel.camera.setEditText("Pentax MX")
-    panel.lens.setEditText("SMC Pentax-M 50mm f/1.7")
+    panel.lens.setEditText("SMC Pentax 50mm f/1.4")
     app.processEvents()
     from PySide6.QtWidgets import QPushButton
-    labels = [w.text() for w in win.editor.findChildren(QPushButton)
-              if w.parent() is not None and win.editor.hint_grid.indexOf(w) >= 0]
+
+    def hint_labels():
+        return [w.text() for w in win.editor.findChildren(QPushButton)
+                if w.parent() is not None and win.editor.hint_grid.indexOf(w) >= 0]
+
+    labels = hint_labels()
     assert labels and not any("1/2000" in t or "1/4000" in t for t in labels), labels
     assert "Pentax MX: 1/1000 to 1s" in win.editor.hint_info.text()
+    assert "SMC Pentax 50mm f/1.4: f/1.4 to f/22" in win.editor.hint_info.text()
+
+    # Dim light: the 50/1.4 can offer f/1.4; switching the frame to the 28/2.8 can't.
+    win.editor.condition.setCurrentIndex(
+        next(i for i in range(win.editor.condition.count())
+             if win.editor.condition.itemText(i) == "Home interior"))
+    app.processEvents()
+    assert any(t.startswith("f/1.4") for t in hint_labels())
+    win.editor.lens.setEditText("Pentax 28mm f/2.8")
+    app.processEvents()
+    assert hint_labels() and not any(t.startswith(("f/1.4", "f/2 ")) for t in hint_labels())
+    assert "Pentax 28mm f/2.8: f/2.8 to f/22" in win.editor.hint_info.text()
 
 
 def test_impossible_entry_is_saved_but_flagged(window, app):

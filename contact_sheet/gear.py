@@ -54,15 +54,15 @@ def _seconds(shutter: str, what: str) -> float:
 
 
 # Pentax MX: mechanical cloth focal-plane shutter, 1 s to 1/1000 plus B, X-sync 1/60.
-# Lens ranges are the usual SMC Pentax-M specs; edit them if your copy differs.
+# Lenses are the two that go with this MX. Both are assumed to stop down to f/22;
+# check the aperture ring and edit in Gear if yours goes further.
 DEFAULT_CAMERAS = [
     Camera("Pentax MX", fastest="1/1000", slowest="1s", bulb=True,
            notes="Mechanical shutter. Flash sync 1/60."),
 ]
 DEFAULT_LENSES = [
-    Lens("SMC Pentax-M 50mm f/1.7", widest=1.7, smallest=22.0),
-    Lens("SMC Pentax-M 50mm f/1.4", widest=1.4, smallest=22.0),
-    Lens("SMC Pentax-M 28mm f/2.8", widest=2.8, smallest=22.0),
+    Lens("SMC Pentax 50mm f/1.4", widest=1.4, smallest=22.0),
+    Lens("Pentax 28mm f/2.8", widest=2.8, smallest=22.0),
 ]
 
 

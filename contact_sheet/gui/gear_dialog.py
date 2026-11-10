@@ -59,7 +59,7 @@ class GearDialog(QDialog):
         reload_btn = QPushButton("Reload from file")
         reload_btn.clicked.connect(lambda *_: self._reload())
         restore_btn = QPushButton("Add Pentax MX kit")
-        restore_btn.setToolTip("Re-add the built-in Pentax MX and SMC Pentax-M lenses if missing")
+        restore_btn.setToolTip("Re-add the built-in Pentax MX, 50mm f/1.4 and 28mm f/2.8 if missing")
         restore_btn.clicked.connect(lambda *_: self._restore_defaults())
         path_row.addWidget(self.path_label, 1)
         for b in (restore_btn, open_btn, reload_btn):

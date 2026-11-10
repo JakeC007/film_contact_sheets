@@ -14,7 +14,9 @@ def test_first_load_writes_pentax_mx_defaults(tmp_path):
     g = Gear.load(p)
     assert p.exists()
     assert g.camera_names() == ["Pentax MX"]
-    assert "SMC Pentax-M 50mm f/1.7" in g.lens_names()
+    assert g.lens_names() == ["SMC Pentax 50mm f/1.4", "Pentax 28mm f/2.8"]
+    assert g.lens("SMC Pentax 50mm f/1.4").widest == 1.4
+    assert g.lens("Pentax 28mm f/2.8").widest == 2.8
     data = json.loads(p.read_text())
     assert data["cameras"][0]["fastest"] == "1/1000"
     assert data["cameras"][0]["slowest"] == "1s"
